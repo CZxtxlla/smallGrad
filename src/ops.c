@@ -1,0 +1,204 @@
+#include "../include/ops.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+
+// The following code acts as a dispatcher. It handles the safety checks as well as the
+// stuff for autograd, but the actual calculations are sent off to either the cpu or gpu.
+// Those calculations are contained in ops_cpu and ops_gpu respectively.
+
+Tensor* tensor_add(Tensor* a, Tensor* b) {
+    if (a->device != b->device) {
+        fprintf(stderr, "Error: Cannot add tensors on different devices.\n");
+        return NULL;
+    }
+
+    if (a->ndims != b->ndims) {
+        fprintf(stderr, "Error: Tensors must have the same number of dimensions for addition.\n");
+        return NULL;
+    }
+    for (int i = 0; i < a->ndims; i++) {
+        if (a->shape[i] != b->shape[i]) {
+            fprintf(stderr, "Error: Tensors must have same shape for addition.\n");
+            return NULL;
+        }
+    }
+
+    // Create output tensor
+    Tensor* out = create_tensor(a->shape, a->ndims, a->device, a->requires_grad || b->requires_grad);
+
+    // Perform calculation on proper device
+    if (a->device == DEVICE_CPU) {
+        add_cpu_forward(a, b, out);
+    } else if (a->device == DEVICE_GPU) {
+        add_gpu_forward(a, b, out);
+    }
+
+    // autograd stuff, store parents etc...
+
+    if (out->requires_grad) {
+        out->parents = (Tensor**)malloc(2 * sizeof(Tensor));
+        if (out->parents == NULL) {
+            fprintf(stderr, "Error: Failed to allocate memory for list of parents in addition tensor.\n");
+            free_tensor(out);
+            return NULL;
+        }
+
+        out->parents[0] = a;
+        out->parents[1] = b;
+        out->num_parents = 2;
+        out->op = OP_ADD;
+    }
+    return out;
+}
+
+Tensor* tensor_mul(Tensor* a, Tensor* b) {
+    if (a->device != b->device) {
+        fprintf(stderr, "Error: Cannot multiply tensors on different devices.\n");
+        return NULL;
+    }
+
+    if (a->ndims != b->ndims) {
+        fprintf(stderr, "Error: Tensors must have the same number of dimensions for multiplication.\n");
+        return NULL;
+    }
+    for (int i = 0; i < a->ndims; i++) {
+        if (a->shape[i] != b->shape[i]) {
+            fprintf(stderr, "Error: Tensors must have same shape for multiplication.\n");
+            return NULL;
+        }
+    }
+
+    // Create output tensor
+    Tensor* out = create_tensor(a->shape, a->ndims, a->device, a->requires_grad || b->requires_grad);
+
+    // Perform calculation on proper device
+    if (a->device == DEVICE_CPU) {
+        mul_cpu_forward(a, b, out);
+    } else if (a->device == DEVICE_GPU) {
+        mul_gpu_forward(a, b, out);
+    }
+
+    // autograd stuff, store parents etc...
+
+    if (out->requires_grad) {
+        out->parents = (Tensor**)malloc(2 * sizeof(Tensor));
+        if (out->parents == NULL) {
+            fprintf(stderr, "Error: Failed to allocate memory for list of parents in multiplication tensor.\n");
+            free_tensor(out);
+            return NULL;
+        }
+
+        out->parents[0] = a;
+        out->parents[1] = b;
+        out->num_parents = 2;
+        out->op = OP_MUL;
+    }
+    return out;
+}
+
+Tensor* tensor_add_bias(Tensor* a, Tensor * bias) {
+    if (a->device != bias->device) {
+        fprintf(stderr, "Error: Cannot add tensor and bias on different devices.\n");
+        return NULL;
+    }
+
+    // a should be 2D [Batch, Features] and Bias 1D [1, Features], must have same number of cols
+    if (a->shape[1] != a->shape[1]) {
+        fprintf(stderr, "Error: Bias and Tensor columns do not match for bias addition.\n");
+        return NULL;
+    }
+
+    Tensor* out = create_tensor(a->shape, a->ndims, a->device, a->requires_grad || bias->requires_grad);
+
+    // Perform calculation on proper device
+    if (a->device == DEVICE_CPU) {
+        bias_cpu_forward(a, bias, out);
+    } else if (a->device == DEVICE_GPU) {
+        bias_gpu_forward(a, bias, out);
+    }
+
+    if (out->requires_grad) {
+        out->parents = (Tensor**)malloc(2 * sizeof(Tensor));
+        if (out->parents == NULL) {
+            fprintf(stderr, "Error: Failed to allocate memory for list of parents in bias addiiton tensor.\n");
+            free_tensor(out);
+            return NULL;
+        }
+
+        out->parents[0] = a;
+        out->parents[1] = bias;
+        out->num_parents = 2;
+        out->op = OP_ADDBIAS;
+    }
+    return out;
+}
+
+Tensor* tensor_matmul(Tensor* a, Tensor* b) {
+    if (a->device != b->device) {
+        fprintf(stderr, "Error: Cannot matrix multiply two tensors on different devices.\n");
+        return NULL;
+    }
+
+    if (a->ndims != 2 || b->ndims != 2) {
+        fprintf(stderr, "Error: Both tensors must be 2D for matrix multiplication.\n");
+        return NULL;
+    }
+
+    if (a->shape[1] != b->shape[0]) {
+        fprintf(stderr, "Error: Inner dimensions must match for matrix multiplication.\n");
+    }
+
+    int out_shape[] = {a->shape[0], b->shape[1]};
+    Tensor* out = create_tensor(out_shape, 2, a->device, a->requires_grad || b->requires_grad);
+
+    if (a->device == DEVICE_CPU) {
+        matmul_cpu_forward(a, b, out);
+    } else if (a->device == DEVICE_GPU) {
+        matmul_gpu_forward(a, b, out);
+    }
+
+    if (out->requires_grad) {
+        out->parents = (Tensor**)malloc(2 * sizeof(Tensor));
+        if (out->parents == NULL) {
+            fprintf(stderr, "Error: Failed to allocate memory for list of parents in matmul tensor.\n");
+            free_tensor(out);
+            return NULL;
+        }
+
+        out->parents[0] = a;
+        out->parents[1] = b;
+        out->num_parents = 2;
+        out->op = OP_MATMUL;
+    }
+    return out;
+}
+
+Tensor* tensor_relu(Tensor* a) {
+    
+    Tensor* out = create_tensor(a->shape, a->ndims, a->device, a->requires_grad);
+
+    if (a->device == DEVICE_CPU) {
+        relu_cpu_forward(a, out);
+    } else if (a->device == DEVICE_GPU) {
+        relu_gpu_forward(a, out);
+    }
+
+    if (out->requires_grad) {
+        out->parents = (Tensor**)malloc(sizeof(Tensor));
+        if (out->parents == NULL) {
+            fprintf(stderr, "Error: Failed to allocate memory for list of parents in relu tensor.\n");
+            free_tensor(out);
+            return NULL;
+        }
+        
+        out->parents[0] = a;
+        out->num_parents = 1;
+        out->op = OP_RELU;   
+    }
+
+    return out;
+}
+
+
+
