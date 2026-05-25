@@ -88,3 +88,7 @@ void backward_relu(Tensor* t) {
         backward_gpu_relu(t, a);
     }
 }
+
+void backward(Tensor* t) {
+    
+}

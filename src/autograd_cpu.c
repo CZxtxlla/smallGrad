@@ -31,11 +31,53 @@ void backward_cpu_mul(Tensor* t, Tensor* a, Tensor* b) {
 
 void backward_cpu_add_bias(Tensor* t, Tensor* a, Tensor* bias) {
     // performs the backwards transmission of gradient on cpu for bias addition
+    int batch_size = a->shape[0]; // rows
+    int features = a->shape[1]; // columns
+
+    if (a->requires_grad) {
+        for (int i = 0; i < a->size; i++) {
+            a->cpu_grad[i] += t->cpu_grad[i];
+        }
+    }
+    if (bias->requires_grad) {
+        for (int i = 0; i < batch_size; i++) {
+            for (int j = 0; j < features; j++) {
+                bias->cpu_grad[j] += t->cpu_grad[i * features + j];
+            }
+        }
+    }
+
 }
 
 void backward_cpu_matmul(Tensor* t, Tensor* a, Tensor* b) {
     // performs the backwards transmission of gradient on cpu for matrix multiplication
+    int j = a->shape[0];
+    int k = a->shape[1];
+    int l = b->shape[1];
 
+    if (a->requires_grad) {
+        for (int m = 0; m < j; m++) {
+            for (int n = 0; n < k; n++) {
+                float grad_a_mn = 0.0f;
+                for (int p = 0; p < l; p++) {
+                    grad_a_mn += t->cpu_grad[m * l + p] * b->cpu_data[n * l + p]; // dot product of mth row of gradT and nth row of B (b/c transpose)
+                }
+                a->cpu_grad[m * k + n] += grad_a_mn;
+            }
+        }
+    }
+
+    if (b->requires_grad) {
+        for (int m = 0; m < k; m++) {
+            for (int n = 0; n < l; n++) {
+                float grad_b_mn= 0.0f;
+                for (int p = 0; p < j; p++) {
+                    grad_b_mn += a->cpu_data[p * k + m] * t->cpu_grad[p * l + n];
+                }
+                b->cpu_grad[m * l + n] += grad_b_mn;
+            }
+        }
+    }
 }
 
 void backward_cpu_relu(Tensor* t, Tensor* a) {

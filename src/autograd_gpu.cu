@@ -2,8 +2,46 @@
 #include <cuda_runtime.h>
 #include "../include/cuda_utils.h"
 
+#define TILE_WIDTH 16
 
-// ------------- Kernels ----------------
+
+// ------------- Helper Kernels ----------------
+
+
+__global__ void transpose_kernel(float* in, float* out, int width, int height) {
+    // helper for backwards matmul, transposes matrix using tiling
+    __shared__ float tile[TILE_WIDTH][TILE_WIDTH + 1];
+
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+
+    // load data into shared memory
+    if (col < width && row < height) {
+        tile[threadIdx.y][threadIdx.x] = in[row * width + col];
+    }
+    __syncthreads();
+
+    row = blockIdx.x * blockDim.x + threadIdx.x;
+    col = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (col < height && row < width) {
+        out[row * height + col] = tile[threadIdx.x][threadIdx.y];
+    }
+}
+
+
+__global__ void accumulate_kernel(float* target, float* source, int size) {
+    // helper
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        atomicAdd(&target[i], source[i]);
+    }
+}
+
+
+
+
+// ------------- Main Kernels ----------------
 
 
 __global__ void backward_add_kernel(float* t_grad, float* a_grad, float* b_grad, int size) {
@@ -20,9 +58,36 @@ __global__ void backward_add_kernel(float* t_grad, float* a_grad, float* b_grad,
     }
 }
 
+__global__ void backward_mul_kernel(float* t_grad, float* a_data, float* b_data, float* a_grad, float* b_grad, int size) {
+    // takes both grad arrays for the tensor and a parent and passes on the gradient according to addition
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
 
+    if (i < size) {
+        if (a_grad != NULL) {
+            atomicAdd(&a_grad[i], t_grad[i] * b_data[i]);
+        }
+        if (b_grad != NULL) {
+            atomicAdd(&b_grad[i], t_grad[i] * a_data[i]);
+        } 
+    }
+}
 
+__global__ void backward_add_bias_kernel(float* t_grad, float* bias_grad,int batch_size, int features) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x; // chooses the column
 
+    if (i < features) {
+        if (bias_grad != NULL) {
+            float sum = 0.0f;
+
+            for (int j = 0; j < batch_size; j++) {
+                sum += t_grad[j * features + i]; 
+            }
+
+            atomicAdd(&bias_grad[i], sum);
+        }
+    }
+
+}
 
 
 
@@ -42,3 +107,111 @@ void backward_gpu_add(Tensor* t, Tensor* a, Tensor* b) {
 cleanup:
     exit(EXIT_FAILURE);
 }
+
+void backward_gpu_mul(Tensor* t, Tensor* a, Tensor* b) {
+    // calls the kernel to pass the gradient backwards on the gpu
+    int threads = 256;
+    dim3 dimBlock(threads, 1, 1);
+    dim3 dimGrid((a->size + threads - 1)/threads, 1, 1);
+    
+    backward_mul_kernel<<<dimGrid, dimBlock>>>(t->gpu_grad, a->gpu_data, b->gpu_data, a->gpu_grad, b->gpu_grad, t->size);
+    CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
+    
+    return;
+
+cleanup:
+    exit(EXIT_FAILURE);
+}
+
+void backward_gpu_add_bias(Tensor* t, Tensor* a, Tensor* bias) {
+    if (a->requires_grad) {
+        int threads = 256;
+        dim3 dimBlockA(threads, 1, 1);
+        dim3 dimGridA((a->size + threads - 1)/threads, 1, 1);
+
+        accumulate_kernel<<<dimGridA, dimBlockA>>>(a->gpu_grad, t->gpu_grad, a->size);
+        CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
+    }
+    if (bias->requires_grad) {
+        int batch_size = a->shape[0];
+        int features = a->shape[1];
+
+        int threads = 256;
+
+        dim3 dimBlockBias(threads, 1, 1);
+        dim3 dimGridBias((features + threads - 1)/threads, 1, 1);
+
+        backward_add_bias_kernel<<<dimGridBias, dimBlockBias>>>(t->gpu_grad, bias->gpu_grad, batch_size, features);
+        CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
+    }
+
+    return;
+
+cleanup:
+    exit(EXIT_FAILURE);
+}
+
+
+
+void backward_gpu_matmul(Tensor* t, Tensor* a, Tensor* b) {
+    int j = a->shape[0];
+    int k = a->shape[1];
+    int l = b->shape[1];
+
+    unsigned int Mds_sz = TILE_WIDTH * TILE_WIDTH * sizeof(float);
+    size_t shared_mem_size = Mds_sz * 2;
+
+    if (a->requires_grad) {
+
+        float *B_T, *gradA_temp;
+        CUDA_CHECK_GOTO(cudaMalloc((void**)&B_T, k * l * sizeof(float)), cleanup);
+        CUDA_CHECK_GOTO(cudaMalloc((void**)&gradA_temp, j * k * sizeof(float)), cleanup);
+
+        // transpose B
+        dim3 dimGridB((l + TILE_WIDTH - 1)/TILE_WIDTH, (k + TILE_WIDTH - 1)/TILE_WIDTH, 1);
+        dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
+        transpose_kernel<<<dimGridB, dimBlock>>>(b->gpu_data, B_T, l, k);
+
+
+        // perform matmul
+        dim3 dimGridMatmulA((k + TILE_WIDTH - 1)/TILE_WIDTH, (j + TILE_WIDTH - 1)/TILE_WIDTH, 1);
+        matmul_kernel<<<dimGridMatmulA, dimBlock, shared_mem_size>>>(t->gpu_grad, B_T, gradA_temp, j, l, k, Mds_sz);
+
+        // accumulate into the gradient
+        int threads = 256;
+        dim3 dimGridAccA((a->size + threads - 1)/ threads, 1, 1);
+        accumulate_kernel<<<dimGridAccA, threads>>>(a->gpu_grad, gradA_temp, a->size);
+        
+        cudaFree(B_T);
+        cudaFree(gradA_temp);
+    }
+    if (b->requires_grad) {
+        float *A_T, *gradB_temp;
+        CUDA_CHECK_GOTO(cudaMalloc((void**)&A_T, j * k * sizeof(float)), cleanup);
+        CUDA_CHECK_GOTO(cudaMalloc((void**)&gradB_temp, k * l * sizeof(float)), cleanup);
+
+        // transpose B
+        dim3 dimGridA((k + TILE_WIDTH - 1)/TILE_WIDTH, (j + TILE_WIDTH - 1)/TILE_WIDTH, 1);
+        dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
+        transpose_kernel<<<dimGridA, dimBlock>>>(a->gpu_data, A_T, k, j);
+
+
+        // perform matmul
+        dim3 dimGridMatmulB((l + TILE_WIDTH - 1)/TILE_WIDTH, (k + TILE_WIDTH - 1)/TILE_WIDTH, 1);
+        matmul_kernel<<<dimGridMatmulB, dimBlock, shared_mem_size>>>(A_T, t->gpu_grad, gradB_temp, k, j, l, Mds_sz);
+
+        // accumulate into the gradient
+        int threads = 256;
+        dim3 dimGridAccB((b->size + threads - 1)/ threads, 1, 1);
+        accumulate_kernel<<<dimGridAccB, threads>>>(b->gpu_grad, gradB_temp, b->size);
+        
+        cudaFree(A_T);
+        cudaFree(gradB_temp);
+    }
+
+    return;
+
+cleanup: 
+    exit(EXIT_FAILURE);
+}
+
