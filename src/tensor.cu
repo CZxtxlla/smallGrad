@@ -101,6 +101,7 @@ void free_tensor(Tensor* t) {
 
 
 void tensor_to_device(Tensor* t, DeviceType device) {
+    // transfers tensor data and gradient to the specified device
     if (t == NULL || device == t->device) {
         return;
     } 
