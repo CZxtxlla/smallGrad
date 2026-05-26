@@ -103,8 +103,13 @@ Tensor* tensor_add_bias(Tensor* a, Tensor * bias) {
         return NULL;
     }
 
-    // a should be 2D [Batch, Features] and Bias 1D [1, Features], must have same number of cols
-    if (a->shape[1] != a->shape[1]) {
+    // a should be 2D [Batch, Features] and bias should be either [Features] or [1, Features]
+    if (a->ndims != 2 || (bias->ndims != 1 && bias->ndims != 2)) {
+        fprintf(stderr, "Error: Bias and Tensor columns do not match for bias addition.\n");
+        return NULL;
+    }
+    if ((bias->ndims == 1 && bias->shape[0] != a->shape[1]) ||
+        (bias->ndims == 2 && (bias->shape[0] != 1 || bias->shape[1] != a->shape[1]))) {
         fprintf(stderr, "Error: Bias and Tensor columns do not match for bias addition.\n");
         return NULL;
     }

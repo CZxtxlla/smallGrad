@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     DEVICE_CPU,
     DEVICE_GPU
@@ -30,6 +34,8 @@ typedef struct Tensor {
 
     DeviceType device; // either DEVICE_CPU or DEVICE_GPU
 
+    int visited_pass_id; // needed for the topological sort
+
     int* shape; // shape of the tensor, i.e. [64, 128] for 2D matrix with 64 elements in column, 128 in row
     int ndims; // Number of dimensions
     size_t size; // total number of elements
@@ -46,5 +52,9 @@ Tensor* create_tensor(int* shape, int ndims, DeviceType device, bool requires_gr
 void free_tensor(Tensor* t);
 
 void tensor_to_device(Tensor* t, DeviceType device); // sends tensor to be stored on specified device
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

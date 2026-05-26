@@ -3,8 +3,9 @@
 
 #include "tensor.h"
 
-//kernels
-__global__ void matmul_kernel(float* M, float* N, float* P, int j, int k, int l, unsigned int Mds_sz);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Forward operations on tensors
 Tensor* tensor_add(Tensor* a, Tensor* b);
@@ -26,5 +27,9 @@ void matmul_gpu_forward(Tensor* a, Tensor* b, Tensor* out);
 Tensor* tensor_relu(Tensor* a);
 void relu_cpu_forward(Tensor* a, Tensor* out);
 void relu_gpu_forward(Tensor* a, Tensor* out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -13,6 +13,7 @@ Tensor* create_tensor(int* shape, int ndims, DeviceType device, bool requires_gr
         fprintf(stderr, "Error: failed to allocate memory for tensor.\n");
         return NULL;
     }
+    t->visited_pass_id = 0;
     t->ndims = ndims;
     t->requires_grad = requires_grad;
     t->op = OP_NONE;
@@ -96,4 +97,59 @@ void free_tensor(Tensor* t) {
     free(t->parents);
     // Finally, free tensor
     free(t);
+}
+
+
+void tensor_to_device(Tensor* t, DeviceType device) {
+    if (t == NULL || device == t->device) {
+        return;
+    } 
+
+    size_t bytes = t->size * sizeof(float);
+
+    if (device == DEVICE_GPU) {
+        cudaMalloc((void**) &t->gpu_data, bytes); // add safety checks
+        cudaMemcpy(t->gpu_data, t->cpu_data, bytes, cudaMemcpyHostToDevice);
+
+        free(t->cpu_data);
+        t->cpu_data = NULL;
+
+        if (t->requires_grad) {
+            cudaMalloc((void**)&t->gpu_grad, bytes);
+
+            if (t->cpu_grad != NULL) {
+                cudaMemcpy(t->gpu_grad, t->cpu_grad, bytes, cudaMemcpyHostToDevice);
+                free(t->cpu_grad);
+                t->cpu_grad = NULL;
+            }
+        }
+        t->device = DEVICE_GPU;
+
+    } else if (device == DEVICE_CPU) {
+        t->cpu_data = (float*)malloc(bytes);
+        if (t->cpu_data == NULL) {
+            fprintf(stderr, "Error: failed to allocate memory during memory transfer to cpu.\n");
+            exit(EXIT_FAILURE);
+        }
+
+        cudaMemcpy(t->cpu_data, t->gpu_data, bytes, cudaMemcpyDeviceToHost); // add safety check
+
+        cudaFree(t->gpu_data);
+        t->gpu_data = NULL;
+
+        if (t->requires_grad) {
+            t->cpu_grad = (float*)malloc(bytes);
+            if (t->cpu_grad == NULL) {
+                fprintf(stderr, "Error: failed to allocate memory during memory transfer to cpu.\n");
+                exit(EXIT_FAILURE);
+            }
+            if (t->gpu_grad != NULL) {
+                cudaMemcpy(t->cpu_grad, t->gpu_grad, bytes, cudaMemcpyDeviceToHost);
+                cudaFree(t->gpu_grad);
+                t->gpu_grad = NULL;
+            }
+        }
+        t->device = DEVICE_CPU;
+    }
+
 }

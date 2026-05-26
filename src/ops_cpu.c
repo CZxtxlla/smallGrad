@@ -15,7 +15,7 @@ void mul_cpu_forward(Tensor* a, Tensor* b, Tensor* out) {
 void bias_cpu_forward(Tensor* a, Tensor* bias, Tensor* out) {
     for (int i = 0; i < a->shape[0]; i++) {
         for (int j = 0; j < a->shape[1]; j++) {
-            out->cpu_data[i * a->shape[1] + j] = a->cpu_data[i * a->shape[1] + j] + bias->cpu_data[i];
+            out->cpu_data[i * a->shape[1] + j] = a->cpu_data[i * a->shape[1] + j] + bias->cpu_data[j];
         }
     }
 }

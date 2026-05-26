@@ -4,6 +4,8 @@
 
 #define TILE_WIDTH 16
 
+__global__ void matmul_kernel(float* M, float* N, float* P, int j, int k, int l, unsigned int Mds_sz);
+
 
 // ------------- Helper Kernels ----------------
 
@@ -12,20 +14,20 @@ __global__ void transpose_kernel(float* in, float* out, int width, int height) {
     // helper for backwards matmul, transposes matrix using tiling
     __shared__ float tile[TILE_WIDTH][TILE_WIDTH + 1];
 
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int in_col = blockIdx.x * blockDim.x + threadIdx.x;
+    int in_row = blockIdx.y * blockDim.y + threadIdx.y;
 
     // load data into shared memory
-    if (col < width && row < height) {
-        tile[threadIdx.y][threadIdx.x] = in[row * width + col];
+    if (in_col < width && in_row < height) {
+        tile[threadIdx.y][threadIdx.x] = in[in_row * width + in_col];
     }
     __syncthreads();
 
-    row = blockIdx.x * blockDim.x + threadIdx.x;
-    col = blockIdx.y * blockDim.y + threadIdx.y;
+    int out_col = blockIdx.y * blockDim.y + threadIdx.x;
+    int out_row = blockIdx.x * blockDim.x + threadIdx.y;
 
-    if (col < height && row < width) {
-        out[row * height + col] = tile[threadIdx.x][threadIdx.y];
+    if (out_col < height && out_row < width) {
+        out[out_row * height + out_col] = tile[threadIdx.x][threadIdx.y];
     }
 }
 
@@ -87,6 +89,16 @@ __global__ void backward_add_bias_kernel(float* t_grad, float* bias_grad,int bat
         }
     }
 
+}
+
+__global__ void backward_relu_kernel(float* t_grad, float* a_grad, float* a_data, int size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        if (a_grad != NULL) {
+            float grad = a_data[i] > 0.0f ? t_grad[i] : 0.0f;
+            atomicAdd(&a_grad[i], grad);
+        }
+    }
 }
 
 
@@ -212,6 +224,22 @@ void backward_gpu_matmul(Tensor* t, Tensor* a, Tensor* b) {
     return;
 
 cleanup: 
+    exit(EXIT_FAILURE);
+}
+
+void backward_gpu_relu(Tensor* t, Tensor* a) {
+    if (a->requires_grad) {
+
+        int threads = 256;
+        dim3 dimBlock(threads, 1, 1);
+        dim3 dimGrid((t->size + threads - 1)/threads, 1, 1);
+        backward_relu_kernel<<<dimGrid, dimBlock>>>(t->gpu_grad, a->gpu_grad, a->gpu_data, t->size);
+        CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
+    }
+
+    return;
+
+cleanup:
     exit(EXIT_FAILURE);
 }
 

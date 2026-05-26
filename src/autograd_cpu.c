@@ -82,5 +82,9 @@ void backward_cpu_matmul(Tensor* t, Tensor* a, Tensor* b) {
 
 void backward_cpu_relu(Tensor* t, Tensor* a) {
     // performs the backwards transmission of gradient on cpu for relu
-
+    if (a->requires_grad) {
+        for (int i = 0; i < t->size; i++) {
+            a->cpu_grad[i] += a->cpu_data[i] > 0 ? t ->cpu_grad[i] : 0.0f; // grad input = grad output if input > 0
+        }
+    }
 }

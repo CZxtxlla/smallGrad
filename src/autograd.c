@@ -1,11 +1,17 @@
 #include "../include/autograd.h"
 
+
+static int current_pass_id = 0; // used to tell if a node was visited
+
+
+// --------- Functions to transmit gradient backwards to parents ------------
+
 void backward_add(Tensor* t) {
     // Takes tensor t which is the result of an addition operation and computes gradients for its parents
 
     if (t->op != OP_ADD || t->num_parents != 2) {
-        fprtinf(stderr, "Error: backward_add called on tensor that is not the result of an addition operation.\n");
-        return NULL;
+        fprintf(stderr, "Error: backward_add called on tensor that is not the result of an addition operation.\n");
+        return;
     }
 
     Tensor* a = t->parents[0];
@@ -22,8 +28,8 @@ void backward_mul(Tensor* t) {
     // Takes tensor t which is the result of a multiplication operation and computes gradients for its parents
 
     if (t->op != OP_MUL || t->num_parents != 2) {
-        fprtinf(stderr, "Error: backward_add called on tensor that is not the result of a multiplication operation.\n");
-        return NULL;
+        fprintf(stderr, "Error: backward_add called on tensor that is not the result of a multiplication operation.\n");
+        return;
     }
 
     Tensor* a = t->parents[0];
@@ -40,8 +46,8 @@ void backward_add_bias(Tensor* t) {
     // Takes tensor t which is the result of a multiplication operation and computes gradients for its parents
 
     if (t->op != OP_ADDBIAS || t->num_parents != 2) {
-        fprtinf(stderr, "Error: backward_add called on tensor that is not the result of an add bias operation.\n");
-        return NULL;
+        fprintf(stderr, "Error: backward_add called on tensor that is not the result of an add bias operation.\n");
+        return;
     }
 
     Tensor* a = t->parents[0];
@@ -58,8 +64,8 @@ void backward_matmul(Tensor* t) {
     // Takes tensor t which is the result of a matrix multiplication operation and computes gradients for its parents
 
     if (t->op != OP_MATMUL || t->num_parents != 2) {
-        fprtinf(stderr, "Error: backward_add called on tensor that is not the result of a matrix multiplication operation.\n");
-        return NULL;
+        fprintf(stderr, "Error: backward_add called on tensor that is not the result of a matrix multiplication operation.\n");
+        return;
     }
 
     Tensor* a = t->parents[0];
@@ -76,8 +82,8 @@ void backward_relu(Tensor* t) {
     // Takes tensor t which is the result of a multiplication operation and computes gradients for its parents
 
     if (t->op != OP_RELU || t->num_parents != 1) {
-        fprtinf(stderr, "Error: backward_add called on tensor that is not the result of a relu operation.\n");
-        return NULL;
+        fprintf(stderr, "Error: backward_add called on tensor that is not the result of a relu operation.\n");
+        return;
     }
 
     Tensor* a = t->parents[0];
@@ -89,6 +95,135 @@ void backward_relu(Tensor* t) {
     }
 }
 
-void backward(Tensor* t) {
-    
+
+// ------- Dynamic array implementation -----------
+
+//dynamicly sized array
+
+void tensor_array_init(TensorArray* ta, int initial_capacity) {
+    ta->size = 0;
+    ta->capacity = initial_capacity;
+    ta->array = (Tensor**)malloc(ta->capacity * sizeof(Tensor*));
+    if (ta->array == NULL) {
+        fprintf(stderr, "Error: failed to allocate memory for tensor array.\n");
+        exit(EXIT_FAILURE);
+    }
 }
+
+void tensor_array_append(TensorArray* ta, Tensor* t) {
+    // If we hit the capacity limit, double the capacity
+    if (ta->size >= ta->capacity) {
+        ta->capacity *= 2;
+        ta->array = (Tensor**)realloc(ta->array, ta->capacity * sizeof(Tensor*));
+
+        if (ta->array == NULL) {
+            fprintf(stderr, "Error: failed to reallocate memory in tensor_array_append.\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    ta->array[ta->size++] = t;
+}
+
+void tensor_array_free(TensorArray* ta) {
+    // Free memory allocated for this dynamic array
+    free(ta->array);
+    ta->size = 0;
+    ta->capacity = 0;
+}
+
+// ------- Functions for the topological sort -----------
+
+void build_topo(Tensor* u, TensorArray* topo) {
+    // Helper, perform DFS and build the topological order of tensors for backpropogation
+    if (u->visited_pass_id == current_pass_id) {
+        return;
+    }
+
+    u->visited_pass_id = current_pass_id;
+
+    for(int i = 0; i < u->num_parents; i++) {
+        build_topo(u->parents[i], topo);
+    }
+
+    tensor_array_append(topo, u);
+}
+
+void collect_nodes(Tensor* root, TensorArray* nodes) {
+    if (root == NULL) {
+        return;
+    }
+    if (root->visited_pass_id == current_pass_id) {
+        return;
+    }
+
+    root->visited_pass_id = current_pass_id; // mark as visited
+
+    for (int i = 0; i < root->num_parents; i++) {
+        collect_nodes(root->parents[i], nodes);
+    }
+
+    tensor_array_append(nodes, root); // add unvisited node to the collection
+}
+
+void free_graph(Tensor* root) {
+    if (root == NULL) {
+        return;
+    }
+    current_pass_id++; // make all nodes unvisited
+
+    TensorArray nodes;
+    tensor_array_init(&nodes, 16);
+
+    collect_nodes(root, &nodes);
+
+    for (int i = 0; i < nodes.size; i++) {
+        Tensor* current = nodes.array[i];
+
+        // Don't free the guys who we provided/weren't created int eh forward pass
+        if (current->num_parents > 0) {
+            free_tensor(current);
+        }
+    }
+
+    tensor_array_free(&nodes); // free the collection of tensors
+}
+
+
+
+// ------ Big boy Backward function -------------
+
+
+void backward(Tensor* t) {
+    current_pass_id++; // mark all nodes as unvisited
+
+    TensorArray topo;
+    tensor_array_init(&topo, 16); // initial capacity of 16
+
+    build_topo(t, &topo);
+
+    // seed the final output gradient witrh 1.0, t->grad[0] = 1.0f;
+
+    for (int i = topo.size - 1; i >= 0; i--) {
+        Tensor* current = topo.array[i];
+        if (current->op == OP_ADD) {
+            backward_add(current);
+        } else if (current->op == OP_MUL) {
+            backward_mul(current);
+        } else if (current->op == OP_MATMUL) {
+            backward_matmul(current);
+        } else if (current->op == OP_ADDBIAS) {
+            backward_add_bias(current);
+        } else if (current->op == OP_RELU) {
+            backward_relu(current);
+        }
+
+    }
+
+    // free allocated memory
+    tensor_array_free(&topo);
+
+
+
+}
+
+

@@ -3,6 +3,16 @@
 
 #include "ops.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct {
+    Tensor** array;
+    int size;
+    int capacity;
+} TensorArray;
+
 void backward_add(Tensor* t);
 void backward_cpu_add(Tensor* t, Tensor* a, Tensor* b);
 void backward_gpu_add(Tensor* t, Tensor* a, Tensor* b);
@@ -24,8 +34,11 @@ void backward_cpu_relu(Tensor* t, Tensor* a);
 void backward_gpu_relu(Tensor* t, Tensor* a);
 
 
-
+void build_topo(Tensor* u, TensorArray* topo);
 void backward(Tensor* t);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif
