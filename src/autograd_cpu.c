@@ -88,3 +88,20 @@ void backward_cpu_relu(Tensor* t, Tensor* a) {
         }
     }
 }
+
+void backward_cpu_mse(Tensor* t, Tensor* pred, Tensor* target) {
+    // performs backwards propogation of gradient on cpu for mse
+    float scale = 2.0f / pred->size;
+
+    if (pred->requires_grad) {
+        for (int i = 0; i < pred->size; i++) {
+            pred->cpu_grad[i] += scale * (pred->cpu_data[i] - target->cpu_data[i]) * t->cpu_grad[0];
+        }
+    } 
+    if (target->requires_grad) {
+        for (int i = 0; i < target->size; i++) {
+            target->cpu_grad[i] += -scale * (pred->cpu_data[i] - target->cpu_data[i]) * t->cpu_grad[0];
+        }
+    }
+
+}

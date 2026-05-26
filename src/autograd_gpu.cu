@@ -101,6 +101,21 @@ __global__ void backward_relu_kernel(float* t_grad, float* a_grad, float* a_data
     }
 }
 
+__global__ void mse_backward_kernel(float* pred, float* target, float* pred_grad, float* target_grad, float* out_grad, int size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        float diff = pred[i] - target[i];
+        float scale = 2.0f / size;
+        
+        if (pred_grad != NULL) {
+            atomicAdd(&pred_grad[i], scale * diff * out_grad[0]);
+        }
+        if (target_grad != NULL) {
+            atomicAdd(&target_grad[i], -scale * diff * out_grad[0]);
+        }
+    }
+}
+
 
 
 // -------------- Helpers ---------------
@@ -243,3 +258,15 @@ cleanup:
     exit(EXIT_FAILURE);
 }
 
+void backward_gpu_mse(Tensor* t, Tensor* pred, Tensor* target) {
+    int threads = 256;
+    dim3 dimBlock(threads, 1, 1);
+    dim3 dimGrid((pred->size + threads - 1)/threads, 1, 1);
+
+    mse_backward_kernel<<<dimGrid, dimBlock>>>(pred->gpu_data, target->gpu_data, pred->gpu_grad, target->gpu_grad, t->gpu_grad, pred->size);
+    CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
+    return;
+
+cleanup:
+    exit(EXIT_FAILURE);
+}

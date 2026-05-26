@@ -37,3 +37,12 @@ void relu_cpu_forward(Tensor* a, Tensor* out) {
         out->cpu_data[i] = a->cpu_data[i] > 0 ? a->cpu_data[i] : 0.0f;
     }
 }
+
+void mse_cpu_forward(Tensor* pred, Tensor* target, Tensor* out) {
+    float sum = 0.0f;
+    for (int i = 0; i < pred->size; i++) {
+        float diff = pred->cpu_data[i] - target->cpu_data[i];
+        sum += diff * diff;
+    }
+    out->cpu_data[0] = sum/pred->size;
+}

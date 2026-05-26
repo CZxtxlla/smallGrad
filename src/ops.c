@@ -205,5 +205,22 @@ Tensor* tensor_relu(Tensor* a) {
     return out;
 }
 
+Tensor* tensor_mse(Tensor* pred, Tensor* target) {
+    int shape[] = {1};
+    Tensor* out = create_tensor(shape, 1, pred->device, true);
+    out->op = OP_MSE;
+    out->num_parents = 2;
+    out->parents = (Tensor**)malloc(2 * sizeof(Tensor*));
+    out->parents[0] = pred;
+    out->parents[1] = target;
+
+    if (pred->device == DEVICE_CPU) {
+        mse_cpu_forward(pred, target, out);
+    } else if (pred->device == DEVICE_GPU) {
+        mse_gpu_forward(pred, target, out);
+    }
+    return out;
+}
+
 
 

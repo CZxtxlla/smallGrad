@@ -81,6 +81,15 @@ __global__ void relu_kernel(float* a, float* out, int size) {
     }
 }
 
+__global__ void mse_forward_kernel(float* pred, float* target, float* out, int size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        float diff = pred[i] - target[i];
+
+        atomicAdd(&out[0], (diff * diff) / size);
+    }
+}
+
 
 // ------------- Helpers --------------- 
 
@@ -164,6 +173,21 @@ void relu_gpu_forward(Tensor* a, Tensor* out) {
     relu_kernel<<<dimGrid, dimBlock>>>(a->gpu_data, out->gpu_data, a->size);
     CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
 
+    return;
+
+cleanup:
+    exit(EXIT_FAILURE);
+}
+
+void mse_gpu_forward(Tensor* pred, Tensor* target, Tensor* out) {
+    cudaMemset(out->gpu_data, 0, sizeof(float));
+
+    int threads = 256;
+    dim3 dimBlock(threads, 1, 1);
+    dim3 dimGrid((pred->size + threads - 1)/threads, 1, 1);
+
+    mse_forward_kernel<<<dimGrid, dimBlock>>>(pred->gpu_data, target->gpu_data, out->gpu_data, pred->size);
+    CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
     return;
 
 cleanup:

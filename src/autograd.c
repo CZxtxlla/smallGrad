@@ -95,6 +95,22 @@ void backward_relu(Tensor* t) {
     }
 }
 
+void backward_mse(Tensor* t) {
+    // takes tensor t result of mse oper and computes parents gradients
+    if (t->op != OP_MSE || t->num_parents != 2) {
+        fprintf(stderr, "Error: backward_mse called on tensor that is not the result of a mse operation.\n");
+    }
+
+    Tensor* pred = t->parents[0];
+    Tensor* target = t->parents[1];
+
+    if (t->device == DEVICE_CPU) {
+        backward_cpu_mse(t, pred, target);
+    } else {
+        backward_gpu_mse(t, pred, target);
+    }
+}
+
 
 // ------- Dynamic array implementation -----------
 
@@ -215,6 +231,8 @@ void backward(Tensor* t) {
             backward_add_bias(current);
         } else if (current->op == OP_RELU) {
             backward_relu(current);
+        } else if (current->op == OP_MSE) {
+            backward_mse(current);
         }
 
     }

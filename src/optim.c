@@ -1,7 +1,7 @@
 #include "../include/optim.h"
 
 
-void sgd_create(Tensor** parameters, int num_parameters, float lr) {
+SGD* sgd_create(Tensor** parameters, int num_parameters, float lr) {
     // Allocates the optimizer and stores the pointers to the learnable parameters
     SGD* optim = (SGD*)malloc(sizeof(SGD));
     if (optim == NULL) {
@@ -27,6 +27,10 @@ void sgd_step(SGD* optim) {
 }
 
 void sgd_zero_grad(SGD* optim) {
+    if (optim == NULL) {
+        return;
+    }
+
     for (int i = 0; i < optim->num_parameters; i++) {
         Tensor* param = optim->parameters[i];
 
@@ -39,5 +43,5 @@ void sgd_zero_grad(SGD* optim) {
 }
 
 void sgd_free(SGD* optim) {
-
+    free(optim);
 }

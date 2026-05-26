@@ -1,5 +1,10 @@
 #include "../include/nn.h"
 
+static float random_float(float limit) {
+    float unit = (float)rand() / (float)RAND_MAX;
+    return (unit * 2.0f - 1.0f) * limit;
+}
+
 
 LinearLayer* create_linear_layer(int in_features, int out_features, DeviceType device) {
     // create layer with xavier uniform initialization for weights and bias
@@ -30,7 +35,7 @@ LinearLayer* create_linear_layer(int in_features, int out_features, DeviceType d
     
     float limit = sqrtf(6.0f / (float)(in_features + out_features));
     for (int i = 0; i < layer->weight->size; i++) {
-        layer->weight->cpu_data[i] = random_float() * limit;
+        layer->weight->cpu_data[i] = random_float(limit);
     }
     for (int i = 0; i < layer->bias->size; i++) {
         layer->bias->cpu_data[i] = 0.01f;

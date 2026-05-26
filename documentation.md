@@ -148,3 +148,20 @@ With similar reasoning $\nabla_B = A^T \nabla_T$.
 
 Thus in code (for the cpu):
 
+```c
+int j = a->shape[0];
+int k = a->shape[1];
+int l = b->shape[1];
+
+if (a->requires_grad) {
+    for (int m = 0; m < j; m++) {
+        for (int n = 0; n < k; n++) {
+            float grad_a_mn = 0.0f;
+            for (int p = 0; p < l; p++) {
+                grad_a_mn += t->cpu_grad[m * l + p] * b->cpu_data[n * l + p]; // dot product of mth row of gradT and nth row of B (b/c transpose)
+            }
+            a->cpu_grad[m * k + n] += grad_a_mn;
+        }
+    }
+}
+```

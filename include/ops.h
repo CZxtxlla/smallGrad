@@ -28,6 +28,10 @@ Tensor* tensor_relu(Tensor* a);
 void relu_cpu_forward(Tensor* a, Tensor* out);
 void relu_gpu_forward(Tensor* a, Tensor* out);
 
+Tensor* tensor_mse(Tensor* pred, Tensor* target);
+void mse_cpu_forward(Tensor* pred, Tensor* target, Tensor* out);
+void mse_gpu_forward(Tensor* pred, Tensor* target, Tensor* out);
+
 #ifdef __cplusplus
 }
 #endif
