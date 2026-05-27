@@ -32,6 +32,10 @@ Tensor* tensor_mse(Tensor* pred, Tensor* target);
 void mse_cpu_forward(Tensor* pred, Tensor* target, Tensor* out);
 void mse_gpu_forward(Tensor* pred, Tensor* target, Tensor* out);
 
+Tensor* tensor_cross_entropy(Tensor* pred, Tensor* target);
+void cross_entropy_cpu_forward(Tensor* pred, Tensor* target, Tensor* out);
+void cross_entropy_gpu_forward(Tensor* pred, Tensor* target, Tensor* out);
+
 #ifdef __cplusplus
 }
 #endif

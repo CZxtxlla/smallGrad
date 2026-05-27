@@ -37,6 +37,10 @@ void backward_mse(Tensor* t);
 void backward_cpu_mse(Tensor* t, Tensor* pred, Tensor* target);
 void backward_gpu_mse(Tensor* t, Tensor* pred, Tensor* target);
 
+void backward_cross_entropy(Tensor* t);
+void backward_cpu_cross_entropy(Tensor* t, Tensor* pred, Tensor* target);
+void backward_gpu_cross_entropy(Tensor* t, Tensor* pred, Tensor* target);
+
 
 void build_topo(Tensor* u, TensorArray* topo);
 void free_graph(Tensor* root);

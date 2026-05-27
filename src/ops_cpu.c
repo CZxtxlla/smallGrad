@@ -46,3 +46,40 @@ void mse_cpu_forward(Tensor* pred, Tensor* target, Tensor* out) {
     }
     out->cpu_data[0] = sum/pred->size;
 }
+
+void cross_entropy_cpu_forward(Tensor* pred, Tensor* target, Tensor* out) {
+    int batch_size = pred->shape[0];
+    int num_classes = pred->shape[1];
+
+    float total_loss = 0.0f;
+
+    for (int b = 0; b < batch_size; b++) {
+        int offset = b * num_classes;
+
+        // compute max
+        float max_val = pred->cpu_data[offset];
+        for (int c = 1; c < num_classes; c++) {
+            if (pred->cpu_data[offset + c] > max_val) {
+                max_val = pred->cpu_data[offset + c];
+            }
+        }
+        // compute exponentials
+        float exp_sum = 0.0f;
+        for (int c = 0; c < num_classes; c++) {
+            float e = expf(pred->cpu_data[offset + c] - max_val);
+            pred->cpu_data[offset + c] = e;
+            exp_sum +=e;
+        }
+
+        // normalize to probabilities and compute loss, -log(p) of the probability of the true class
+        for (int c = 0; c < num_classes; c++) {
+            float prob = pred->cpu_data[offset + c] / exp_sum;
+            pred->cpu_data[offset + c] = prob;
+
+            if (target->cpu_data[offset + c] == 1.0f) {
+                total_loss -= logf(prob + 1e-7f);
+            }
+        }
+    }
+    out->cpu_data[0] = total_loss/batch_size;
+}

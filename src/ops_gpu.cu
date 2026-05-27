@@ -90,6 +90,39 @@ __global__ void mse_forward_kernel(float* pred, float* target, float* out, int s
     }
 }
 
+__global__ void cross_entropy_forward_kernel(float* pred, float* target, float* out, int batch_size, int num_classes) {
+    int b = blockIdx.x * blockDim.x + threadIdx.x; // index in batch
+
+    if (b < batch_size) {
+        int offset = b * num_classes;
+
+        float max_val = pred[offset];
+        for (int c = 1; c < num_classes; c++) {
+            if (pred[offset + c] > max_val) {
+                max_val = pred[offset + c];
+            }
+        }
+
+        float exp_sum = 0.0f;
+        for (int c = 0; c < num_classes; c++) {
+            float e = expf(pred[offset + c] - max_val);
+            pred[offset + c] = e;
+            exp_sum += e;
+        }
+
+        float loss = 0.0f;
+        for (int c = 0; c < num_classes; c++) {
+            float prob = pred[offset + c] / exp_sum;
+            pred[offset + c] = prob;
+            if (target[offset + c] == 1.0f) {
+                loss -= logf(prob + 1e-7f);
+            }
+        }
+
+        atomicAdd(&out[0], loss / batch_size);
+    }
+}
+
 
 // ------------- Helpers --------------- 
 
@@ -192,4 +225,23 @@ void mse_gpu_forward(Tensor* pred, Tensor* target, Tensor* out) {
 
 cleanup:
     exit(EXIT_FAILURE);
+}
+
+void cross_entropy_gpu_forward(Tensor* pred, Tensor* target, Tensor* out) {
+    cudaMemset(out->gpu_data, 0, sizeof(float));
+
+    int batch_size = pred->shape[0];
+    int num_classes = pred->shape[1];
+
+    int threads = 256;
+    dim3 dimBlock(threads, 1, 1);
+    dim3 dimGrid((batch_size + threads - 1)/threads, 1, 1);
+
+    cross_entropy_forward_kernel<<<dimGrid, dimBlock>>>(pred->gpu_data, target->gpu_data, out->gpu_data, batch_size, num_classes);
+    CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
+
+    return;
+cleanup:
+    exit(EXIT_FAILURE);
+
 }

@@ -21,7 +21,8 @@ typedef enum {
     OP_MATMUL,
     OP_RELU,
     OP_ADDBIAS,
-    OP_MSE
+    OP_MSE,
+    OP_CROSS_ENTROPY
 } opType;
 
 typedef struct Tensor {

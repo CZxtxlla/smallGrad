@@ -105,3 +105,15 @@ void backward_cpu_mse(Tensor* t, Tensor* pred, Tensor* target) {
     }
 
 }
+
+void backward_cpu_cross_entropy(Tensor* t, Tensor* pred, Tensor* target) {
+    int batch_size = pred->shape[0];
+    float scale = t->cpu_grad[0] / batch_size;
+
+    if (pred->requires_grad) {
+        for (int i = 0; i < pred->size; i++) {
+            // combined derivative
+            pred->cpu_grad[i] += (pred->cpu_data[i] - target->cpu_data[i]) * scale;
+        }
+    }
+}

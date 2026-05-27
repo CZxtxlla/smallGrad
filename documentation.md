@@ -1,17 +1,14 @@
-
-
-
 ### backward_add_bias
 
 The forward operation of tensor_add_bias operates with a $2 \times 2$ matrix as follows. We have a matrix and a bias vector,
 $$
 A = \begin{bmatrix}
-        a_{11} & a_{12} \\
-        a_{21} & a_{22} \\
-        \end{bmatrix} 
-        \quad b = \begin{bmatrix}
-        b_1 & b_2\\
-        \end{bmatrix}
+a_{11} & a_{12} \\
+a_{21} & a_{22} \\
+\end{bmatrix} 
+\quad b = \begin{bmatrix}
+ b_1 & b_2\\
+\end{bmatrix}
 $$
 
 These are compatible because they have the same number of columns. We extend $b$ such that it is compatible with matrix addition, i.e.
@@ -165,3 +162,75 @@ if (a->requires_grad) {
     }
 }
 ```
+
+### backward_cross_entropy
+
+We really need to understand the forward direction first. Let $x = [x_1, x_2, \dots, x_n]$ be the array of of raw output logits from our prediction, and $y = [y_1, y_2, \dots, y_n]$ the target array (one hot encoded i.e. one of the values is 1.0 and the rest are 0). First, the *softmax* function is applied to convert the raw logits from the prediction into a probability distribution:
+
+$$
+p_i = \frac{e^{x_i}}{\sum_{j = 1}^n e^{x_j}}
+$$
+
+Next we calculate the *cross entropy loss* which measures the difference between the predicted probability distribution and the target distribution:
+
+$$
+L = - \sum_{i = 1}^n y_i \log(p_i) = - y_t \log(p_t) = -\log(p_t)
+$$
+
+where $t$ is the true target class (since all the other $y_i = 0$ and $y_t = 1$).
+
+Now we want to find the gradient of the loss with respect to the original raw predicition logits, i.e. $\frac{\partial L}{\partial x_k}$. By the multivariable chain rule, 
+
+$$
+\frac{\partial L}{\partial x_k} = \sum_{i = 1}^n \frac{\partial L}{\partial p_i} \cdot \frac{\partial p_i}{\partial x_k}
+$$
+
+The derivative of the loss with respect to a single probability $p_i$ is straightforward, it is just
+
+$$
+\frac{\partial L}{\partial p_i} = \frac{\partial}{\partial p_i} \left( - \sum_{i = 1}^n y_i \log(p_i) \right) =  \frac{\partial}{\partial p_i} (-y_i \log(p_i)) = -\frac{y_i}{p_i}
+$$
+
+The second part of the derivatve is more complicated. We will split into two cases, when $i = k$ and when $i \neq k$. For the first case, assume $i = k$. We will apply quotient rule to take the derivative:
+
+$$
+\frac{\partial p_k}{\partial x_k} = \frac{e^{x_k} \sum_{j = 1}^n e^{x_j} - e^{x_k}e^{x_k}}{\left( \sum_{j = 1}^n e^{x_j} \right)^2} = \frac{e^{x_k}}{\sum e^{x_j}} - \left(\frac{e^{x_k}}{\sum e^{x_j}}\right)^2 = p_k - p_k^2 = p_k(1 - p_k)
+$$
+
+Now for the second case assume $i \neq k$:
+
+$$
+\frac{\partial p_i}{\partial x_k} = \frac{0 \cdot \sum_{j = 1}^n e^{x_j} - e^{x_i} e^{x_k}}{\left({\sum_{j = 1}^n e^{x_j}}\right)^2} = - \left(\frac{e^{x_i}}{\sum e^{x_j}}\right) \cdot \left(\frac{e^{x_k}}{\sum e^{x_j}}\right) = -p_i p_k
+$$
+
+Putting this together, 
+
+$$
+\frac{\partial L}{\partial x_k} = \sum_{i = 1}^n \frac{\partial L}{\partial p_i} \cdot \frac{\partial p_i}{\partial x_k} = \left(\sum_{i \neq k} \frac{\partial L}{\partial p_i} \cdot \frac{\partial p_i}{\partial x_k}\right) + \left(\frac{\partial L}{\partial p_k} \cdot \frac{\partial p_k}{\partial x_k}\right) = \sum_{i \neq k} \left(-\frac{y_i}{p_i}\right) \cdot -p_ip_k + \left(-\frac{y_k}{p_k}\right) \cdot p_k(1 - p_k)
+$$
+
+With some simplification,
+
+$$
+\frac{\partial L}{\partial x_k} = \sum_{i \neq k} y_i p_k - y_k(1 - p_k) = \sum_{i \neq k} y_i p_k - y_k + y_kp_k = -y_k + p_k \left(y_k + \sum_{i \neq k} y_i\right) = p_k - y_k
+$$
+
+Thus we are left with the very simple formula $\frac{\partial L}{\partial x_k} = p_k - y_k$. 
+
+Thus in code (for the cpu):
+
+```c
+void backward_cpu_cross_entropy(Tensor* t, Tensor* pred, Tensor* target) {
+    int batch_size = pred->shape[0];
+    float scale = t->cpu_grad[0] / batch_size;
+
+    if (pred->requires_grad) {
+        for (int i = 0; i < pred->size; i++) {
+            // combined derivative
+            pred->cpu_grad[i] += (pred->cpu_data[i] - target->cpu_data[i]) * scale;
+        }
+    }
+}
+```
+
+Note here we are dividing by batch size because we are taking the average loss over all the images. Additionally, `pred->cpu_data[i]` was updated during the forward pass to contain $p_i$.

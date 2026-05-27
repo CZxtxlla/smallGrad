@@ -11,7 +11,7 @@
 
 void run_simple_training(DeviceType device, const char* label, Tensor* images, Tensor* labels) {
     int sample_count = 60000; 
-    int epochs = 3;
+    int epochs = 50;
     int batch_size = 128;
     int input_features = images->shape[1];
     int num_classes = labels->shape[1];
@@ -41,7 +41,7 @@ void run_simple_training(DeviceType device, const char* label, Tensor* images, T
 
             // Forward Pass
             Tensor* predictions = mlp_forward(model, batch_inputs);
-            Tensor* loss = tensor_mse(predictions, batch_labels);
+            Tensor* loss = tensor_cross_entropy(predictions, batch_labels);
 
             // Add to total loss for logging
             total_loss += tensor_scalar_value(loss);
@@ -80,7 +80,7 @@ int main(void) {
     }
 
     // 1. Run the loop on the CPU
-    run_simple_training(DEVICE_CPU, "CPU", all_images, all_labels);
+    //run_simple_training(DEVICE_CPU, "CPU", all_images, all_labels);
 
     // 2. Transfer the master dataset to the GPU
     printf("\nTransferring dataset to GPU VRAM...\n");

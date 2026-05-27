@@ -111,6 +111,22 @@ void backward_mse(Tensor* t) {
     }
 }
 
+void backward_cross_entropy(Tensor* t) {
+    // takes tensor t result of cross entropy loss and computes parents gradients
+    if (t->op != OP_CROSS_ENTROPY || t->num_parents != 2) {
+        fprintf(stderr, "Error: backward_mse called on tensor that is not the result of a cross entropy operation.\n");
+    }
+
+    Tensor* pred = t->parents[0];
+    Tensor* target = t->parents[1];
+
+    if (t->device == DEVICE_CPU) {
+        backward_cpu_cross_entropy(t, pred, target);
+    } else {
+        backward_gpu_cross_entropy(t, pred, target);
+    }
+}
+
 
 // ------- Dynamic array implementation -----------
 
@@ -233,6 +249,8 @@ void backward(Tensor* t) {
             backward_relu(current);
         } else if (current->op == OP_MSE) {
             backward_mse(current);
+        } else if (current->op == OP_CROSS_ENTROPY) {
+            backward_cross_entropy(current);
         }
 
     }
