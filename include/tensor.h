@@ -62,6 +62,8 @@ void seed_loss_grad(Tensor* loss); // set the loss gradient to 1
 
 Tensor* tensor_slice_view(Tensor* master, int start_row, int num_rows); // generates view tensor of portion of master tensor
 
+void tensor_download_data(Tensor* t, float* dest); // helper for training
+
 #ifdef __cplusplus
 }
 #endif

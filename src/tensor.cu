@@ -222,3 +222,15 @@ Tensor* tensor_slice_view(Tensor* master, int start_row, int num_rows) {
     return view;
 
 }
+
+void tensor_download_data(Tensor* t, float* dest) {
+    if (t == NULL || dest == NULL) return;
+    
+    size_t bytes = t->size * sizeof(float);
+    
+    if (t->device == DEVICE_CPU) {
+        memcpy(dest, t->cpu_data, bytes);
+    } else if (t->device == DEVICE_GPU) {
+        cudaMemcpy(dest, t->gpu_data, bytes, cudaMemcpyDeviceToHost);
+    }
+}

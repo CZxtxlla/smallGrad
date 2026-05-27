@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-// Notice: Pure C! No <cuda_runtime.h>, no timespec structs, no complicated math.
 #include "../include/tensor.h"
 #include "../include/ops.h"
 #include "../include/autograd.h"
@@ -8,18 +7,85 @@
 #include "../include/optim.h"
 #include "../include/dataset.h"
 
+// --- Helper to find the index of the highest probability ---
+static int argmax(const float* values, int row_index, int columns) {
+    int best_index = 0;
+    float best_value = values[row_index * columns];
+    for (int col = 1; col < columns; col++) {
+        float current = values[row_index * columns + col];
+        if (current > best_value) {
+            best_value = current;
+            best_index = col;
+        }
+    }
+    return best_index;
+}
 
-void run_simple_training(DeviceType device, const char* label, Tensor* images, Tensor* labels) {
+// --- The Evaluation Loop ---
+void evaluate_model(MLP* model, Tensor* test_images, Tensor* test_labels) {
+    int sample_count = test_images->shape[0];
+    int num_classes = test_labels->shape[1];
+    int batch_size = 128;
+    int num_batches = sample_count / batch_size;
+    
+    float total_loss = 0.0f;
+    int correct_predictions = 0;
+    int total_evaluated = num_batches * batch_size;
+    
+    printf("Evaluating model on %d test samples...\n", total_evaluated);
+
+    for (int b = 0; b < num_batches; b++) {
+        int start_row = b * batch_size;
+        
+        Tensor* batch_inputs = tensor_slice_view(test_images, start_row, batch_size);
+        Tensor* batch_labels = tensor_slice_view(test_labels, start_row, batch_size);
+        
+        // FORWARD PASS ONLY (No backward, no optimizer step!)
+        Tensor* predictions = mlp_forward(model, batch_inputs);
+        Tensor* loss = tensor_cross_entropy(predictions, batch_labels);
+        
+        total_loss += tensor_scalar_value(loss);
+        
+        // Download predictions back to CPU to calculate accuracy
+        float* host_preds = (float*)malloc(predictions->size * sizeof(float));
+        float* host_labels = (float*)malloc(batch_labels->size * sizeof(float));
+        
+        tensor_download_data(predictions, host_preds);
+        tensor_download_data(batch_labels, host_labels);
+        
+        // Compare predictions to targets
+        for (int i = 0; i < batch_size; i++) {
+            int pred_class = argmax(host_preds, i, num_classes);
+            int true_class = argmax(host_labels, i, num_classes);
+            if (pred_class == true_class) {
+                correct_predictions++;
+            }
+        }
+        
+        free(host_preds);
+        free(host_labels);
+        free_graph(loss);
+        free_tensor(batch_inputs);
+        free_tensor(batch_labels);
+    }
+    
+    float accuracy = ((float)correct_predictions / total_evaluated) * 100.0f;
+    printf("\n--- Test Results ---\n");
+    printf("Accuracy: %.2f%% (%d/%d)\n", accuracy, correct_predictions, total_evaluated);
+    printf("Average Loss: %.4f\n--------------------\n\n", total_loss / num_batches);
+}
+
+// --- The Training Loop (Modified to return the trained model) ---
+MLP* run_simple_training(DeviceType device, const char* label, Tensor* images, Tensor* labels) {
     int sample_count = 60000; 
-    int epochs = 50;
+    int epochs = 100; 
     int batch_size = 128;
     int input_features = images->shape[1];
     int num_classes = labels->shape[1];
 
-    // Initialize MLP and Optimizer
     int architecture[] = {input_features, 128, 64, num_classes};
     MLP* model = create_mlp(architecture, 4, device);
-    if (!model) return;
+    if (!model) return NULL;
 
     int num_params;
     Tensor** params = mlp_get_parameters(model, &num_params);
@@ -27,32 +93,25 @@ void run_simple_training(DeviceType device, const char* label, Tensor* images, T
 
     printf("\n[%s] Starting training on %d samples...\n", label, sample_count);
 
-    // Core Training Loop
     for (int epoch = 0; epoch < epochs; epoch++) {
         float total_loss = 0.0f;
         int num_batches = sample_count / batch_size;
 
         for (int b = 0; b < num_batches; b++) {
             int start_row = b * batch_size;
-
-            // Create zero-copy views for the current batch
             Tensor* batch_inputs = tensor_slice_view(images, start_row, batch_size);
             Tensor* batch_labels = tensor_slice_view(labels, start_row, batch_size);
 
-            // Forward Pass
             Tensor* predictions = mlp_forward(model, batch_inputs);
             Tensor* loss = tensor_cross_entropy(predictions, batch_labels);
 
-            // Add to total loss for logging
             total_loss += tensor_scalar_value(loss);
 
-            // Backward Pass & Step
             seed_loss_grad(loss);
             backward(loss);
             sgd_step(optimizer);
             sgd_zero_grad(optimizer);
 
-            // Garbage Collection
             free_graph(loss);
             free_tensor(batch_inputs);
             free_tensor(batch_labels);
@@ -61,39 +120,49 @@ void run_simple_training(DeviceType device, const char* label, Tensor* images, T
         printf("[%s] Epoch %d/%d | Average Loss: %.4f\n", label, epoch + 1, epochs, total_loss / num_batches);
     }
 
-    // Clean up layer parameters
     sgd_free(optimizer);
-    free(params);
-    free_mlp(model);
+    free(params); // Frees the array of pointers, not the tensors themselves
+    
+    return model; // Return the trained model
 }
 
 int main(void) {
-    printf("--- Simple SmallGrad MNIST Demo ---\n\n");
+    printf("--- SmallGrad MNIST Training & Testing Demo ---\n\n");
 
-    printf("Loading MNIST data...\n");
-    Tensor* all_images = load_mnist_images("data/train-images-idx3-ubyte");
-    Tensor* all_labels = load_mnist_labels("data/train-labels-idx1-ubyte");
+    printf("Loading MNIST Training data...\n");
+    Tensor* train_images = load_mnist_images("data/train-images-idx3-ubyte");
+    Tensor* train_labels = load_mnist_labels("data/train-labels-idx1-ubyte");
 
-    if (all_images == NULL || all_labels == NULL) {
-        fprintf(stderr, "Error: failed to load dataset.\n");
+    printf("Loading MNIST Testing data...\n");
+    Tensor* test_images = load_mnist_images("data/t10k-images-idx3-ubyte");
+    Tensor* test_labels = load_mnist_labels("data/t10k-labels-idx1-ubyte");
+
+    if (!train_images || !train_labels || !test_images || !test_labels) {
+        fprintf(stderr, "Error: failed to load datasets. Check your data/ folder.\n");
         return 1;
     }
 
-    // 1. Run the loop on the CPU
-    //run_simple_training(DEVICE_CPU, "CPU", all_images, all_labels);
+    printf("\nTransferring all datasets to GPU VRAM...\n");
+    tensor_to_device(train_images, DEVICE_GPU);
+    tensor_to_device(train_labels, DEVICE_GPU);
+    tensor_to_device(test_images, DEVICE_GPU);
+    tensor_to_device(test_labels, DEVICE_GPU);
 
-    // 2. Transfer the master dataset to the GPU
-    printf("\nTransferring dataset to GPU VRAM...\n");
-    tensor_to_device(all_images, DEVICE_GPU);
-    tensor_to_device(all_labels, DEVICE_GPU);
+    // 1. Train the model
+    MLP* trained_model = run_simple_training(DEVICE_GPU, "GPU", train_images, train_labels);
 
-    // 3. Run the exact same loop on the GPU
-    run_simple_training(DEVICE_GPU, "GPU", all_images, all_labels);
+    // 2. Test the model
+    if (trained_model) {
+        evaluate_model(trained_model, test_images, test_labels);
+        free_mlp(trained_model); // Free the model now that we are done testing
+    }
 
     // Clean up global data
-    free_tensor(all_images);
-    free_tensor(all_labels);
+    free_tensor(train_images);
+    free_tensor(train_labels);
+    free_tensor(test_images);
+    free_tensor(test_labels);
 
-    printf("\nDemo completed successfully!\n");
+    printf("Demo completed successfully!\n");
     return 0;
 }
