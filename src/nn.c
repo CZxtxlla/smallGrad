@@ -66,3 +66,65 @@ void free_linear_layer(LinearLayer* layer) {
         free(layer);
     }
 }
+
+
+// --------- MLP ----------
+
+MLP* create_mlp(int* architecture, int num_layers, DeviceType device) {
+    MLP* model = (MLP*)malloc(sizeof(MLP));
+    if (model == NULL) {
+        fprintf(stderr, "Error: failed to allocate memory for the MLP struct.\n");
+        return NULL;
+    }
+    model->dev = device;
+    model->num_layers = num_layers - 1;
+    model->layers = (LinearLayer**)malloc(model->num_layers * sizeof(LinearLayer*));
+    if (model->layers == NULL) {
+        fprintf(stderr, "Error: Failed to allocate memory for MLP layers array.\n");
+        free(model);
+        return NULL;
+    }
+
+    for (int i = 0; i < model->num_layers; i++) {
+        model->layers[i] = create_linear_layer(architecture[i], architecture[i + 1], device);
+    }
+    return model;
+}
+
+Tensor* mlp_forward(MLP* model, Tensor* input) {
+    Tensor* current = input;
+    for (int i = 0; i < model->num_layers; i++) {
+        current = linear_forward(model->layers[i], current);
+        // apply relu to hidden layers
+        if (i < model->num_layers - 1) {
+            current = tensor_relu(current);
+        }
+    }
+
+    return current;
+}   
+
+Tensor** mlp_get_parameters(MLP* model, int* out_num_parameters) {
+    *out_num_parameters = model->num_layers * 2; // each layer has weight and bias
+    Tensor** params = (Tensor**)malloc(*out_num_parameters * sizeof(Tensor*));
+    if (params == NULL) {
+        fprintf(stderr, "Error: Failed to allocate memory for MLP parameters array.\n");
+        return NULL;
+    }
+
+    for (int i = 0; i < model->num_layers; i++) {
+        params[i * 2] = model->layers[i]->weight;
+        params[i * 2 + 1] = model->layers[i]->bias;
+    }
+    return params;
+}
+
+void free_mlp(MLP* model) {
+    if (model != NULL) {
+        for (int i = 0; i < model->num_layers; i++) {
+            free_linear_layer(model->layers[i]);
+        }
+        free(model->layers);
+        free(model);
+    }
+}

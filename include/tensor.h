@@ -37,6 +37,8 @@ typedef struct Tensor {
 
     int visited_pass_id; // needed for the topological sort
 
+    bool is_view; // true if it doesn't own its data, it is looking at another tensor's data
+
     int* shape; // shape of the tensor, i.e. [64, 128] for 2D matrix with 64 elements in column, 128 in row
     int ndims; // Number of dimensions
     size_t size; // total number of elements
@@ -53,6 +55,11 @@ Tensor* create_tensor(int* shape, int ndims, DeviceType device, bool requires_gr
 void free_tensor(Tensor* t);
 
 void tensor_to_device(Tensor* t, DeviceType device); // sends tensor to be stored on specified device
+
+float tensor_scalar_value(Tensor* t); // get the value of the first element of the tensor (used to get value of the loss)
+void seed_loss_grad(Tensor* loss); // set the loss gradient to 1
+
+Tensor* tensor_slice_view(Tensor* master, int start_row, int num_rows); // generates view tensor of portion of master tensor
 
 #ifdef __cplusplus
 }
