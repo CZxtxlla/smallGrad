@@ -78,7 +78,7 @@ void evaluate_model(MLP* model, Tensor* test_images, Tensor* test_labels) {
 // --- The Training Loop (Modified to return the trained model) ---
 MLP* run_simple_training(DeviceType device, const char* label, Tensor* images, Tensor* labels) {
     int sample_count = 60000; 
-    int epochs = 100; 
+    int epochs = 10; 
     int batch_size = 128;
     int input_features = images->shape[1];
     int num_classes = labels->shape[1];

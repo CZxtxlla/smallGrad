@@ -13,6 +13,8 @@ Tensor* create_tensor(int* shape, int ndims, DeviceType device, bool requires_gr
         fprintf(stderr, "Error: failed to allocate memory for tensor.\n");
         return NULL;
     }
+    t->stride = 0;
+    t->padding = 0;
     t->is_view = false;
     t->visited_pass_id = 0;
     t->ndims = ndims;

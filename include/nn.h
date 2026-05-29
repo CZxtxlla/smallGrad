@@ -15,13 +15,28 @@ typedef struct {
     Tensor* bias; // shape [1, out_features]
 } LinearLayer;
 
+typedef struct {
+    int in_channels; // input depth i.e. for rgb image, 3 (red, green blue), for grey image 1
+    int out_channels; // number of filters
+    int filter_size; // 3 for a 3x3 filter
+    int stride; // how far filter moves after calculating each pixel
+    int padding; // width of zero-padding pixels
 
+    Tensor* weight; // shape [out_channels, in_channels, filter_size, filter_size]
+    Tensor* bias; // shape [1, out_channels, 1, 1]
+} Conv2dLayer;
+
+// stuff for linear layer
 LinearLayer* create_linear_layer(int in_features, int out_features, DeviceType device); // xavier uniform weights and bias
 Tensor* linear_forward(LinearLayer* layer, Tensor* input); // pass the input tensor through linear layer
 void free_linear_layer(LinearLayer* layer); // free the memory allocated for the linear layer and its tensors
 
-// stuff for MLP
+//stuff for convolutional layer
+Conv2dLayer* create_conv2d_layer(int in_channels, int out_channels, int filter_size, int stride, int padding, DeviceType device);
+Tensor* conv_forward(Conv2dLayer* layer, Tensor* input);
+void free_conv2d_layer(Conv2dLayer* layer);
 
+// stuff for MLP
 typedef struct {
     LinearLayer** layers; // all the layers in the mlp
     int num_layers;

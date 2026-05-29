@@ -205,6 +205,51 @@ Tensor* tensor_relu(Tensor* a) {
     return out;
 }
 
+Tensor* tensor_conv2d(Tensor* input, Tensor* weight, Tensor* bias, int stride, int padding) {
+    int batch_size = input->shape[0];
+    int in_channels = input->shape[1];
+    int in_height = input->shape[2];
+    int in_width = input->shape[3];
+
+    int out_channels = weight->shape[0];
+    int filter_size = weight->shape[2]; // square filter
+
+    int out_height = ((in_height + 2 * padding - filter_size) / stride) + 1;
+    int out_width = ((in_width + 2 * padding - filter_size) / stride) + 1;
+
+    int out_shape[] = {batch_size, out_channels, out_height, out_width};
+
+    Tensor* out = create_tensor(out_shape, 3, input->device, true);
+    if (out == NULL) {
+        fprintf(stderr, "Error: problem allocating out tensor in convolution forward.\n");
+        return NULL;
+    }
+    out->op = OP_CONV2D;
+
+    out->stride = stride;
+    out->padding = padding;
+
+    out->num_parents = 3; // 3 parents, input, weight, bias
+    out->parents = (Tensor**)malloc(3 * sizeof(Tensor));
+    if (out->parents == NULL) {
+        fprintf(stderr, "Error: problem allocating parents array in convolution forward.\n");
+        return NULL;
+    }
+
+    out->parents[0] = input;
+    out->parents[1] = weight;
+    out->parents[2] = bias;
+
+    if (input->device == DEVICE_CPU) {
+        conv2d_cpu_forward(input, weight, bias, out, stride, padding);
+    } else if (input->device == DEVICE_GPU) {
+        conv2d_gpu_forward(input, weight, bias, out, stride, padding);
+    }
+
+    return out;
+
+}
+
 Tensor* tensor_mse(Tensor* pred, Tensor* target) {
     int shape[] = {1};
     Tensor* out = create_tensor(shape, 1, pred->device, true);

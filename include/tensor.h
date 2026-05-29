@@ -21,6 +21,7 @@ typedef enum {
     OP_MATMUL,
     OP_RELU,
     OP_ADDBIAS,
+    OP_CONV2D,
     OP_MSE,
     OP_CROSS_ENTROPY
 } opType;
@@ -49,6 +50,10 @@ typedef struct Tensor {
     struct Tensor** parents; // list of pointers to parent tensors
     int num_parents; // greater than or equal to 1
     opType op; // type of operation used to create this tensor from the parent tensor(s)
+
+    // needed for backward pass through convolutional layer
+    int stride;
+    int padding;
 } Tensor;
 
 

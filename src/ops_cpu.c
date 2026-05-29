@@ -32,6 +32,10 @@ void matmul_cpu_forward(Tensor* a, Tensor* b, Tensor* out) {
     }
 }
 
+void conv2d_cpu_forward(Tensor* input, Tensor* weight, Tensor* bias, Tensor* out, int stride, int padding) {
+    
+}
+
 void relu_cpu_forward(Tensor* a, Tensor* out) {
     for (int i = 0; i < a->size; i++) {
         out->cpu_data[i] = a->cpu_data[i] > 0 ? a->cpu_data[i] : 0.0f;
