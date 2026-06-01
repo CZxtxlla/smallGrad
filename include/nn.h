@@ -26,6 +26,12 @@ typedef struct {
     Tensor* bias; // shape [1, out_channels, 1, 1]
 } Conv2dLayer;
 
+typedef struct {
+    int filter_size;
+    int padding;
+    int stride;
+} MaxPool2DLayer;
+
 // stuff for linear layer
 LinearLayer* create_linear_layer(int in_features, int out_features, DeviceType device); // xavier uniform weights and bias
 Tensor* linear_forward(LinearLayer* layer, Tensor* input); // pass the input tensor through linear layer
@@ -33,8 +39,13 @@ void free_linear_layer(LinearLayer* layer); // free the memory allocated for the
 
 //stuff for convolutional layer
 Conv2dLayer* create_conv2d_layer(int in_channels, int out_channels, int filter_size, int stride, int padding, DeviceType device);
-Tensor* conv_forward(Conv2dLayer* layer, Tensor* input);
+Tensor* conv2d_forward(Conv2dLayer* layer, Tensor* input);
 void free_conv2d_layer(Conv2dLayer* layer);
+
+// stuff for max pooling layer
+MaxPool2DLayer* create_maxpool2d_layer(int filter_size, int stride, int padding);
+Tensor* maxpool2d_forward(MaxPool2DLayer* layer, Tensor* input);
+void free_maxpool2d_layer(MaxPool2DLayer* layer);
 
 // stuff for MLP
 typedef struct {

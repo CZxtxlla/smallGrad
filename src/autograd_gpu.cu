@@ -101,6 +101,16 @@ __global__ void backward_relu_kernel(float* t_grad, float* a_grad, float* a_data
     }
 }
 
+__global__ void backward_maxpool2d_kernel(float* t_grad, int* max_indices, float* input_grad, int size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        int max_idx = max_indices[i];
+        if (max_idx >= 0) {
+            atomicAdd(&input_grad[max_idx], t_grad[i]);
+        }
+    }
+}
+
 __global__ void mse_backward_kernel(float* pred, float* target, float* pred_grad, float* target_grad, float* out_grad, int size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
@@ -259,6 +269,23 @@ void backward_gpu_relu(Tensor* t, Tensor* a) {
         CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
     }
 
+    return;
+
+cleanup:
+    exit(EXIT_FAILURE);
+}
+
+void backward_gpu_maxpool2d(Tensor* t, Tensor* input) {
+    if (!input ->requires_grad) {
+        return;
+    }
+    int threads = 256;
+    dim3 dimBlock(threads, 1, 1);
+    dim3 dimGrid((t->size + threads - 1) / threads, 1, 1);
+
+    backward_maxpool2d_kernel<<<dimGrid, dimBlock>>>(t->gpu_grad, t->max_indices, input->gpu_grad, t->size);
+
+    CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
     return;
 
 cleanup:

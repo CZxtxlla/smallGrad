@@ -32,6 +32,10 @@ Tensor* tensor_conv2d(Tensor* input, Tensor* weight, Tensor* bias, int stride, i
 void conv2d_cpu_forward(Tensor* input, Tensor* weight, Tensor* bias, Tensor* out, int stride, int padding);
 void conv2d_gpu_forward(Tensor* input, Tensor* weight, Tensor* bias, Tensor* out, int stride, int padding);
 
+Tensor* maxpool2d_forward(Tensor* input, int filter_size, int stride, int padding);
+void maxpool2d_cpu_forward(Tensor* input, Tensor* out, int filter_size, int stride, int padding);
+void maxpool2d_gpu_forward(Tensor* input, Tensor* out, int filter_size, int stride, int padding);
+
 Tensor* tensor_mse(Tensor* pred, Tensor* target);
 void mse_cpu_forward(Tensor* pred, Tensor* target, Tensor* out);
 void mse_gpu_forward(Tensor* pred, Tensor* target, Tensor* out);

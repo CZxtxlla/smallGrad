@@ -33,6 +33,10 @@ void backward_relu(Tensor* t);
 void backward_cpu_relu(Tensor* t, Tensor* a);
 void backward_gpu_relu(Tensor* t, Tensor* a);
 
+void backward_maxpool2d(Tensor* t);
+void backward_cpu_maxpool2d(Tensor* t, Tensor* input);
+void backward_gpu_maxpool2d(Tensor* t, Tensor* input);
+
 void backward_mse(Tensor* t);
 void backward_cpu_mse(Tensor* t, Tensor* pred, Tensor* target);
 void backward_gpu_mse(Tensor* t, Tensor* pred, Tensor* target);

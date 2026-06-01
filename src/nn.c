@@ -141,9 +141,33 @@ void free_conv2d_layer(Conv2dLayer* layer) {
     }
 }
 
-Tensor* conv_forward(Conv2dLayer* layer, Tensor* input) {
+Tensor* conv2d_forward(Conv2dLayer* layer, Tensor* input) {
+    // pass to the dispatcher which will do all the linking for the computations graph for backprop.
+    return tensor_conv2d(input, layer->weight, layer->bias, layer->stride, layer->padding);
+}
 
-    
+// -------- Max pooling layer ----------
+
+MaxPool2DLayer* create_maxpool2d_layer(int filter_size, int stride, int padding) {
+    MaxPool2DLayer* layer = (MaxPool2DLayer*)malloc(sizeof(MaxPool2DLayer));
+    if (layer == NULL) {
+        fprintf(stderr, "Error: problem with allocating memory for max pooling layer initialization.\n");
+        return NULL;
+    }
+    layer->filter_size = filter_size;
+    layer->stride = stride;
+    layer->padding = padding;
+    return layer;
+}
+
+Tensor* maxpool2d_forward(MaxPool2DLayer* layer, Tensor* input) {
+    return tensor_maxpool2d(input, layer->filter_size, layer->stride, layer->padding);
+}
+
+void free_maxpool2d_layer(MaxPool2DLayer* layer) {
+    if (layer != NULL) {
+        free(layer);
+    }
 }
 
 // --------- MLP ----------

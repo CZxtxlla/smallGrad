@@ -96,6 +96,7 @@ void free_tensor(Tensor* t) {
         cudaFree(t->gpu_data);
         cudaFree(t->gpu_grad);
     }
+    if (t->max_indices != NULL) free(t->max_indices);
     // Free rest
     free(t->shape);
     free(t->parents);

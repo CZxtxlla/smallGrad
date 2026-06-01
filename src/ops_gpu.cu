@@ -81,6 +81,84 @@ __global__ void relu_kernel(float* a, float* out, int size) {
     }
 }
 
+__global__ void conv2d_forward_kernel(
+    float* input, float* weight, float* bias, float* out, 
+    int batch_size, int in_c, int in_h, int in_w, 
+    int out_c, int f_h, int f_w, int out_h, int out_w, 
+    int stride, int padding, int total_elements) {
+
+        int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+        // boundary check
+        if (i < total_elements) {
+            // unravel the 1d index into the 4d coors
+            int ow = i % out_w;
+            int oh = (i / out_w) % out_h;
+            int oc = (i / (out_w * out_h)) % out_c;
+            int b = i / (out_w * out_h * out_c);
+
+            float val = bias[oc];
+
+            // same as the cpu, just without the four outer loops (since those are done by the parallelism)
+            for (int ic = 0; ic < in_c; ic++) {
+                for (int fh = 0; fh < f_h; fh++) {
+                    for (int fw = 0; fw < f_w; fw++) {
+                        int ih = oh * stride - padding + fh;
+                        int iw = ow * stride - padding + fw;
+
+                        if (ih >= 0 && ih < in_h && iw >= 0 && iw < in_w) {
+                            // equivalent to [b, ic, ih, iw]
+                            int in_idx = b * (in_c * in_h * in_w) + ic * (in_h * in_w) + ih * in_w + iw;
+                            // equivalent to [oc, ic, fh, fw]
+                            int w_idx = oc * (in_c * f_h * f_w) + ic * (f_h * f_w) + fh * f_w + fw;
+
+                            val += input[in_idx] * weight[w_idx];
+                        }
+                    }
+                }
+            }
+            out[i] = val;
+        }
+} 
+
+__global__ void maxpool2d_forward_kernel(float* input, float* out, int* max_indices, int batch_size, int channels, int in_h, int in_w, int out_h, int out_w, int filter_size, int stride, int padding, int total_elements) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // boundary check
+    if (i < total_elements) {
+        // unravel the 1d index into the 4d coors
+        int ow = i % out_w;
+        int oh = (i / out_w) % out_h;
+        int c = (i / (out_w * out_h)) % channels;
+        int b = i / (out_w * out_h * channels);
+
+        float max_val = -1e20f;
+        int max_idx = -1;
+
+        // same as the cpu, just without the four outer loops (since those are done by the parallelism)
+        for (int fh = 0; fh < filter_size; fh++) {
+            for (int fw = 0; fw < filter_size; fw++) {
+                int ih = oh * stride - padding + fh;
+                int iw = ow * stride - padding + fw;
+
+                if (ih >= 0 && ih < in_h && iw >= 0 && iw < in_w) {
+                    // equivalent to [b, ic, ih, iw]
+                    int in_idx = b * (channels * in_h * in_w) + c * (in_h * in_w) + ih * in_w + iw;
+
+                    float val = input[in_idx];
+
+                    if (val > max_val) {
+                        max_val = val;
+                        max_idx = in_idx;
+                    }
+                }
+            }
+        }
+        out[i] = max_val;
+        max_indices[i] = max_idx;
+    }
+}
+
 __global__ void mse_forward_kernel(float* pred, float* target, float* out, int size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
@@ -211,6 +289,57 @@ void relu_gpu_forward(Tensor* a, Tensor* out) {
 cleanup:
     exit(EXIT_FAILURE);
 }
+
+void conv2d_gpu_forward(Tensor* input, Tensor* weight, Tensor* bias, Tensor* out, int stride, int padding) {
+    int batch_size = input->shape[0];
+    int in_c = input->shape[1]; // number of input channels (same as weight->shape[1])
+    int in_h = input->shape[2];
+    int in_w = input->shape[3]; // used for boundary checks when convoluting
+
+    int out_c = weight->shape[0]; // number of outpit channels (filters)
+    int f_h = weight->shape[2]; // height of filter
+    int f_w = weight->shape[3]; // width of filter
+
+    int out_h = out->shape[2]; // output image height
+    int out_w = out->shape[3]; // output image width
+
+    int total_elements = out->size;
+
+    int threads = 256;
+    dim3 dimBlock(threads, 1, 1);
+    dim3 dimGrid((total_elements + threads - 1)/threads, 1, 1);
+
+    conv2d_forward_kernel<<<dimGrid, dimBlock>>>(input->gpu_data, weight->gpu_data, bias->gpu_data, out->gpu_data, batch_size, in_c, in_h, in_w, out_c, f_h, f_w, out_h, out_w, stride, padding, total_elements);
+    CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
+    return;
+
+cleanup:
+    exit(EXIT_FAILURE);
+}
+
+void maxpool2d_gpu_forward(Tensor* input, Tensor* out, int filter_size, int stride, int padding) {
+    int batch_size = input->shape[0];
+    int channels = input->shape[1]; // number of input channels (same as weight->shape[1])
+    int in_h = input->shape[2];
+    int in_w = input->shape[3]; // used for boundary checks when convoluting
+
+    int out_h = out->shape[2]; // output image height
+    int out_w = out->shape[3]; // output image width
+
+    int total_elements = out->size;
+
+    int threads = 256;
+    dim3 dimBlock(threads, 1, 1);
+    dim3 dimGrid((total_elements + threads - 1)/threads, 1, 1);
+
+    maxpool2d_forward_kernel<<<dimGrid, dimBlock>>>(input->gpu_data, out->gpu_data, out->max_indices, batch_size, channels, in_h, in_w, out_h, out_w, filter_size, stride, padding, total_elements);
+    CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
+    return;
+
+cleanup:
+    exit(EXIT_FAILURE);
+}
+
 
 void mse_gpu_forward(Tensor* pred, Tensor* target, Tensor* out) {
     cudaMemset(out->gpu_data, 0, sizeof(float));

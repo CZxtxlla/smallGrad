@@ -89,6 +89,19 @@ void backward_cpu_relu(Tensor* t, Tensor* a) {
     }
 }
 
+void backward_cpu_maxpool2d(Tensor* t, Tensor* input) {
+    if (!input->requires_grad) {
+        return;
+    }
+    for (int i = 0; i < t->size; i++) {
+        int max_idx = t->max_indices[i];
+
+        if (max_idx >= 0 && max_idx < input->size) {
+            input->cpu_grad[max_idx] += t->cpu_grad[i];
+        }
+    }
+}
+
 void backward_cpu_mse(Tensor* t, Tensor* pred, Tensor* target) {
     // performs backwards propogation of gradient on cpu for mse
     float scale = 2.0f / pred->size;

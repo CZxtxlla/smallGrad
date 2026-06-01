@@ -234,3 +234,6 @@ void backward_cpu_cross_entropy(Tensor* t, Tensor* pred, Tensor* target) {
 ```
 
 Note here we are dividing by batch size because we are taking the average loss over all the images. Additionally, `pred->cpu_data[i]` was updated during the forward pass to contain $p_i$.
+
+
+## Convolutional Layer

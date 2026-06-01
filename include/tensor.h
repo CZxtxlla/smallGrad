@@ -22,6 +22,7 @@ typedef enum {
     OP_RELU,
     OP_ADDBIAS,
     OP_CONV2D,
+    OP_MAXPOOL2D,
     OP_MSE,
     OP_CROSS_ENTROPY
 } opType;
@@ -54,6 +55,8 @@ typedef struct Tensor {
     // needed for backward pass through convolutional layer
     int stride;
     int padding;
+
+    int* max_indices // caches index of the max value for backward pass for max pooling operation
 } Tensor;
 
 

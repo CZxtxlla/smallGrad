@@ -95,6 +95,21 @@ void backward_relu(Tensor* t) {
     }
 }
 
+void backward_maxpool2d(Tensor* t) {
+    if (t->op != OP_MAXPOOL2D || t->num_parents != 1) {
+        fprintf(stderr, "Error: backward_maxpool2d called on tensor that is not the result of maxpool operation.\n");
+        return;
+    }
+    
+    Tensor* input = t->parents[0];
+    
+    if (t->device == DEVICE_CPU) {
+        backward_cpu_maxpool2d(t, input);
+    } else {
+        backward_gpu_maxpool2d(t, input);
+    }
+}
+
 void backward_mse(Tensor* t) {
     // takes tensor t result of mse oper and computes parents gradients
     if (t->op != OP_MSE || t->num_parents != 2) {
@@ -247,6 +262,8 @@ void backward(Tensor* t) {
             backward_add_bias(current);
         } else if (current->op == OP_RELU) {
             backward_relu(current);
+        } else if (current->op = OP_MAXPOOL2D) {
+            backward_maxpool2d(current);
         } else if (current->op == OP_MSE) {
             backward_mse(current);
         } else if (current->op == OP_CROSS_ENTROPY) {
