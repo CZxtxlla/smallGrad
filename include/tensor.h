@@ -20,6 +20,7 @@ typedef enum {
     OP_MUL,
     OP_MATMUL,
     OP_RELU,
+    OP_FLATTEN,
     OP_ADDBIAS,
     OP_CONV2D,
     OP_MAXPOOL2D,
@@ -56,7 +57,8 @@ typedef struct Tensor {
     int stride;
     int padding;
 
-    int* max_indices // caches index of the max value for backward pass for max pooling operation
+    int* max_indices; // CPU max-pool argmax cache
+    int* gpu_max_indices; // GPU max-pool argmax cache
 } Tensor;
 
 

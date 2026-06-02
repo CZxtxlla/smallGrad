@@ -332,7 +332,7 @@ void maxpool2d_gpu_forward(Tensor* input, Tensor* out, int filter_size, int stri
     dim3 dimBlock(threads, 1, 1);
     dim3 dimGrid((total_elements + threads - 1)/threads, 1, 1);
 
-    maxpool2d_forward_kernel<<<dimGrid, dimBlock>>>(input->gpu_data, out->gpu_data, out->max_indices, batch_size, channels, in_h, in_w, out_h, out_w, filter_size, stride, padding, total_elements);
+    maxpool2d_forward_kernel<<<dimGrid, dimBlock>>>(input->gpu_data, out->gpu_data, out->gpu_max_indices, batch_size, channels, in_h, in_w, out_h, out_w, filter_size, stride, padding, total_elements);
     CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
     return;
 

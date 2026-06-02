@@ -44,7 +44,7 @@ void free_conv2d_layer(Conv2dLayer* layer);
 
 // stuff for max pooling layer
 MaxPool2DLayer* create_maxpool2d_layer(int filter_size, int stride, int padding);
-Tensor* maxpool2d_forward(MaxPool2DLayer* layer, Tensor* input);
+Tensor* maxpool2d_layer_forward(MaxPool2DLayer* layer, Tensor* input);
 void free_maxpool2d_layer(MaxPool2DLayer* layer);
 
 // stuff for MLP
@@ -60,6 +60,21 @@ Tensor* mlp_forward(MLP* model, Tensor* input); // perform forward pass through 
 Tensor** mlp_get_parameters(MLP* model, int* out_num_parameters); // get array with all learnable parameters (weights and biases)
 void free_mlp(MLP* model); // free memory allocated for the mlp and its layers
 
+
+// stuff for CNN
+typedef struct {
+    Conv2dLayer* conv1;
+    MaxPool2DLayer* pool1;
+    Conv2dLayer* conv2;
+    MaxPool2DLayer* pool2;
+    LinearLayer* fc1;
+    LinearLayer* fc2;
+} SimpleCNN;
+
+SimpleCNN* create_simple_cnn(DeviceType device);
+Tensor* cnn_forward(SimpleCNN* model, Tensor* input);
+Tensor** cnn_get_parameters(SimpleCNN* model, int* out_num_parameters);
+void free_simple_cnn(SimpleCNN* model);
 
 
 

@@ -22,6 +22,8 @@ Tensor* create_tensor(int* shape, int ndims, DeviceType device, bool requires_gr
     t->op = OP_NONE;
     t->parents = NULL;
     t->num_parents = 0;
+    t->max_indices = NULL;
+    t->gpu_max_indices = NULL;
 
     t->size = 1; // initialize to accumulate dimensions via multipication
     t->shape = (int*)malloc(ndims * sizeof(int));
@@ -89,14 +91,17 @@ void free_tensor(Tensor* t) {
         return;
     }
     if (!t->is_view) {
-        // Free cpu data/grad
+        // Free cpu data and gpu data only for owning tensors.
         free(t->cpu_data);
-        free(t->cpu_grad);
-        // Free gpu data/grad
         cudaFree(t->gpu_data);
-        cudaFree(t->gpu_grad);
     }
+
+    // Gradient buffers are owned by the tensor itself, even for views.
+    free(t->cpu_grad);
+    cudaFree(t->gpu_grad);
+
     if (t->max_indices != NULL) free(t->max_indices);
+    if (t->gpu_max_indices != NULL) cudaFree(t->gpu_max_indices);
     // Free rest
     free(t->shape);
     free(t->parents);

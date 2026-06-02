@@ -22,7 +22,7 @@ static int argmax(const float* values, int row_index, int columns) {
 }
 
 // --- The Evaluation Loop ---
-void evaluate_model(MLP* model, Tensor* test_images, Tensor* test_labels) {
+void evaluate_model(SimpleCNN* model, Tensor* test_images, Tensor* test_labels) {
     int sample_count = test_images->shape[0];
     int num_classes = test_labels->shape[1];
     int batch_size = 128;
@@ -40,20 +40,27 @@ void evaluate_model(MLP* model, Tensor* test_images, Tensor* test_labels) {
         Tensor* batch_inputs = tensor_slice_view(test_images, start_row, batch_size);
         Tensor* batch_labels = tensor_slice_view(test_labels, start_row, batch_size);
         
-        // FORWARD PASS ONLY (No backward, no optimizer step!)
-        Tensor* predictions = mlp_forward(model, batch_inputs);
+        // --- THE RESHAPE TRICK: Convert flat [128, 784] into 4D [128, 1, 28, 28] ---
+        batch_inputs->ndims = 4;
+        free(batch_inputs->shape);
+        batch_inputs->shape = (int*)malloc(4 * sizeof(int));
+        batch_inputs->shape[0] = batch_size;
+        batch_inputs->shape[1] = 1;  // 1 Channel (Grayscale)
+        batch_inputs->shape[2] = 28; // Height
+        batch_inputs->shape[3] = 28; // Width
+        
+        // forward pass
+        Tensor* predictions = cnn_forward(model, batch_inputs);
         Tensor* loss = tensor_cross_entropy(predictions, batch_labels);
         
         total_loss += tensor_scalar_value(loss);
         
-        // Download predictions back to CPU to calculate accuracy
         float* host_preds = (float*)malloc(predictions->size * sizeof(float));
         float* host_labels = (float*)malloc(batch_labels->size * sizeof(float));
         
         tensor_download_data(predictions, host_preds);
         tensor_download_data(batch_labels, host_labels);
         
-        // Compare predictions to targets
         for (int i = 0; i < batch_size; i++) {
             int pred_class = argmax(host_preds, i, num_classes);
             int true_class = argmax(host_labels, i, num_classes);
@@ -65,6 +72,8 @@ void evaluate_model(MLP* model, Tensor* test_images, Tensor* test_labels) {
         free(host_preds);
         free(host_labels);
         free_graph(loss);
+        free_tensor(batch_inputs);
+        free_tensor(batch_labels);
     }
     
     float accuracy = ((float)correct_predictions / total_evaluated) * 100.0f;
@@ -73,23 +82,24 @@ void evaluate_model(MLP* model, Tensor* test_images, Tensor* test_labels) {
     printf("Average Loss: %.4f\n--------------------\n\n", total_loss / num_batches);
 }
 
-// --- The Training Loop (Modified to return the trained model) ---
-MLP* run_simple_training(DeviceType device, const char* label, Tensor* images, Tensor* labels) {
+// --- The Training Loop ---
+SimpleCNN* run_simple_training(DeviceType device, const char* label, Tensor* images, Tensor* labels) {
     int sample_count = 60000; 
-    int epochs = 10; 
+    int epochs = 60; 
     int batch_size = 128;
-    int input_features = images->shape[1];
-    int num_classes = labels->shape[1];
+    // int num_classes = labels->shape[1];
 
-    int architecture[] = {input_features, 128, 64, num_classes};
-    MLP* model = create_mlp(architecture, 4, device);
+    // Create the CNN instead of the MLP
+    SimpleCNN* model = create_simple_cnn(device);
     if (!model) return NULL;
 
     int num_params;
-    Tensor** params = mlp_get_parameters(model, &num_params);
-    SGD* optimizer = sgd_create(params, num_params, 0.05f);
+    Tensor** params = cnn_get_parameters(model, &num_params);
+    
+    // Lower learning rate (CNNs with MaxPool often need slightly smaller steps than flat MLPs)
+    SGD* optimizer = sgd_create(params, num_params, 0.01f); 
 
-    printf("\n[%s] Starting training on %d samples...\n", label, sample_count);
+    printf("\n[%s] Starting CNN training on %d samples...\n", label, sample_count);
 
     for (int epoch = 0; epoch < epochs; epoch++) {
         float total_loss = 0.0f;
@@ -100,7 +110,17 @@ MLP* run_simple_training(DeviceType device, const char* label, Tensor* images, T
             Tensor* batch_inputs = tensor_slice_view(images, start_row, batch_size);
             Tensor* batch_labels = tensor_slice_view(labels, start_row, batch_size);
 
-            Tensor* predictions = mlp_forward(model, batch_inputs);
+            // --- THE RESHAPE TRICK FOR TRAINING ---
+            batch_inputs->ndims = 4;
+            free(batch_inputs->shape);
+            batch_inputs->shape = (int*)malloc(4 * sizeof(int));
+            batch_inputs->shape[0] = batch_size;
+            batch_inputs->shape[1] = 1;
+            batch_inputs->shape[2] = 28;
+            batch_inputs->shape[3] = 28;
+
+            // Forward -> Loss -> Backward -> Step
+            Tensor* predictions = cnn_forward(model, batch_inputs);
             Tensor* loss = tensor_cross_entropy(predictions, batch_labels);
 
             total_loss += tensor_scalar_value(loss);
@@ -111,19 +131,21 @@ MLP* run_simple_training(DeviceType device, const char* label, Tensor* images, T
             sgd_zero_grad(optimizer);
 
             free_graph(loss);
+            free_tensor(batch_inputs);
+            free_tensor(batch_labels);
         }
 
         printf("[%s] Epoch %d/%d | Average Loss: %.4f\n", label, epoch + 1, epochs, total_loss / num_batches);
     }
 
     sgd_free(optimizer);
-    free(params); // Frees the array of pointers, not the tensors themselves
+    free(params); 
     
-    return model; // Return the trained model
+    return model;
 }
 
 int main(void) {
-    printf("--- SmallGrad MNIST Training & Testing Demo ---\n\n");
+    printf("--- SmallGrad CNN MNIST Training & Testing Demo ---\n\n");
 
     printf("Loading MNIST Training data...\n");
     Tensor* train_images = load_mnist_images("data/train-images-idx3-ubyte");
@@ -145,12 +167,12 @@ int main(void) {
     tensor_to_device(test_labels, DEVICE_GPU);
 
     // 1. Train the model
-    MLP* trained_model = run_simple_training(DEVICE_GPU, "GPU", train_images, train_labels);
+    SimpleCNN* trained_model = run_simple_training(DEVICE_GPU, "GPU", train_images, train_labels);
 
     // 2. Test the model
     if (trained_model) {
         evaluate_model(trained_model, test_images, test_labels);
-        free_mlp(trained_model); // Free the model now that we are done testing
+        free_simple_cnn(trained_model); 
     }
 
     // Clean up global data

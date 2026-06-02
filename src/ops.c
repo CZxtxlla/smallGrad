@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+typedef int cudaError_t;
+#define cudaSuccess 0
+extern cudaError_t cudaMallocManaged(void** devPtr, size_t size);
+
 
 // The following code acts as a dispatcher. It handles the safety checks as well as the
 // stuff for autograd, but the actual calculations are sent off to either the cpu or gpu.
@@ -207,7 +211,7 @@ Tensor* tensor_relu(Tensor* a) {
 
 Tensor* tensor_conv2d(Tensor* input, Tensor* weight, Tensor* bias, int stride, int padding) {
     int batch_size = input->shape[0];
-    int in_channels = input->shape[1];
+    // int in_channels = input->shape[1];
     int in_height = input->shape[2];
     int in_width = input->shape[3];
 
@@ -268,10 +272,20 @@ Tensor* maxpool2d_forward(Tensor* input, int filter_size, int stride, int paddin
     out->op = OP_MAXPOOL2D;
 
     // every max comes from 1 max input
-    out->max_indices = (int*)malloc(out->size * sizeof(int));
-    if (out->max_indices == NULL) {
-        fprintf(stderr, "Error: problem allocating max_indices array in max pool forward.\n");
-        return NULL;
+    if (input->device == DEVICE_CPU) {
+        out->max_indices = (int*)malloc(out->size * sizeof(int));
+        if (out->max_indices == NULL) {
+            fprintf(stderr, "Error: problem allocating max_indices array in max pool forward.\n");
+            free_tensor(out);
+            return NULL;
+        }
+    } else if (input->device == DEVICE_GPU) {
+        cudaError_t err = cudaMallocManaged((void**)&out->gpu_max_indices, out->size * sizeof(int));
+        if (err != cudaSuccess) {
+            fprintf(stderr, "Error: problem allocating gpu_max_indices array in max pool forward.\n");
+            free_tensor(out);
+            return NULL;
+        }
     }
 
     out->num_parents = 1;
@@ -324,6 +338,3 @@ Tensor* tensor_cross_entropy(Tensor* pred, Tensor* target) {
     }
     return out;
 }
-
-
-

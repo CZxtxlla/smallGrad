@@ -1,5 +1,7 @@
 #include "../include/nn.h"
 
+extern int cudaFree(void* devPtr);
+
 
 // helper for xavier uniform initialization
 static float random_float(float limit) {
@@ -160,8 +162,8 @@ MaxPool2DLayer* create_maxpool2d_layer(int filter_size, int stride, int padding)
     return layer;
 }
 
-Tensor* maxpool2d_forward(MaxPool2DLayer* layer, Tensor* input) {
-    return tensor_maxpool2d(input, layer->filter_size, layer->stride, layer->padding);
+Tensor* maxpool2d_layer_forward(MaxPool2DLayer* layer, Tensor* input) {
+    return maxpool2d_forward(input, layer->filter_size, layer->stride, layer->padding);
 }
 
 void free_maxpool2d_layer(MaxPool2DLayer* layer) {
@@ -227,6 +229,126 @@ void free_mlp(MLP* model) {
             free_linear_layer(model->layers[i]);
         }
         free(model->layers);
+        free(model);
+    }
+}
+
+// ------------ CNN ------------------
+
+Tensor* tensor_flatten(Tensor* input) {
+    int batch_size = input->shape[0];
+    int flat_features = input->shape[1] * input->shape[2] * input->shape[3];
+
+    int new_shape[] = {batch_size, flat_features};
+    Tensor* out = create_tensor(new_shape, 2, input->device, input->requires_grad);
+    if (out == NULL) {
+        fprintf(stderr, "Error: problem creating output tensor in tensor_flatten.\n");
+        return NULL;
+    }
+
+    out->op = OP_NONE;
+    out->op = OP_FLATTEN;
+    out->is_view = true;
+
+    out->num_parents = 1;
+    out->parents = (Tensor**)malloc(sizeof(Tensor*));
+    if (out->parents == NULL) {
+        fprintf(stderr, "Error: problem allocating memory for parents array in tensor_flatten.\n");
+        free_tensor(out);
+        return NULL;
+    }
+    out->parents[0] = input;
+
+    if (input->device == DEVICE_CPU) {
+        free(out->cpu_data);
+        out->cpu_data = input->cpu_data;
+        cudaFree(out->gpu_data);
+        out->gpu_data = NULL;
+    } else if (input->device == DEVICE_GPU) {
+        free(out->cpu_data);
+        out->cpu_data = NULL;
+        cudaFree(out->gpu_data);
+        out->gpu_data = input->gpu_data;
+    }
+
+    return out;
+
+}
+
+SimpleCNN* create_simple_cnn(DeviceType device) {
+    // create CNN for training on MNIST
+    SimpleCNN* model = (SimpleCNN*)malloc(sizeof(SimpleCNN));
+    if (model == NULL) {
+        fprintf(stderr, "Error: Failed to allocate memory for simpel CNN.\n");
+        return NULL;
+    }
+    // 1 in_channel (MNIST greyscale), 8 filters, 3x3 filter, stride 1, padding 1
+    model->conv1 = create_conv2d_layer(1, 8, 3, 1, 1, device);
+    model->pool1 = create_maxpool2d_layer(2, 2, 0); // 2x2 filter, stride of 2
+
+    // 8 in_channels, 16 filters, 3x3 filter, stride 1, padding 1
+    model->conv2 = create_conv2d_layer(8, 16, 3, 1, 1, device);
+    model->pool2 = create_maxpool2d_layer(2, 2, 0); // 2x2 filter, stride of 2
+
+    // flattened size is 16 channels * 7 height * 7 width = 784 features
+    // note: height and width are 7 cause we started out with 28 x 28 image but maxpooled twice, 
+    // dividing both dimensions by 4 (since our filter is 2x2 with stride 2)
+    model->fc1 = create_linear_layer(784, 128, device);
+    model->fc2 = create_linear_layer(128, 10, device);
+
+    return model;
+}
+
+Tensor* cnn_forward(SimpleCNN* model, Tensor* input) {
+    Tensor* x;
+
+    x = conv2d_forward(model->conv1, input);
+    x = tensor_relu(x);
+    x = maxpool2d_layer_forward(model->pool1, x);
+
+    x = conv2d_forward(model->conv2, x);
+    x = tensor_relu(x);
+    x = maxpool2d_layer_forward(model->pool2, x);
+
+    x = tensor_flatten(x);
+
+    x = linear_forward(model->fc1, x);
+    x = tensor_relu(x);
+    x = linear_forward(model->fc2, x);
+
+    return x;
+}
+Tensor** cnn_get_parameters(SimpleCNN* model, int* out_num_parameters) {
+    // get all learnable parameters
+    *out_num_parameters = 8; // 2 from conv1, 2 from conv2, 2 from fc1, 2 from fc2
+    Tensor** params = (Tensor**)malloc(*out_num_parameters * sizeof(Tensor*));
+    if (params == NULL) {
+        fprintf(stderr, "Error: problem allocating memory for parameters array.\n");
+        return NULL;
+    }
+
+    params[0] = model->conv1->weight;
+    params[1] = model->conv1->bias;
+    params[2] = model->conv2->weight;
+    params[3] = model->conv2->bias;
+    params[4] = model->fc1->weight;
+    params[5] = model->fc1->bias;
+    params[6] = model->fc2->weight;
+    params[7] = model->fc2->bias;
+
+    return params;
+}
+
+
+void free_simple_cnn(SimpleCNN* model) {
+    if (model != NULL) {
+        free_conv2d_layer(model->conv1);
+        free_conv2d_layer(model->conv2);
+        free_maxpool2d_layer(model->pool1);
+        free_maxpool2d_layer(model->pool2);
+        free_linear_layer(model->fc1);
+        free_linear_layer(model->fc2);
+        
         free(model);
     }
 }

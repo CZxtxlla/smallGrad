@@ -33,6 +33,10 @@ void backward_relu(Tensor* t);
 void backward_cpu_relu(Tensor* t, Tensor* a);
 void backward_gpu_relu(Tensor* t, Tensor* a);
 
+void backward_flatten(Tensor* t);
+void backward_cpu_flatten(Tensor* t, Tensor* a);
+void backward_gpu_flatten(Tensor* t, Tensor* a);
+
 void backward_conv2d(Tensor* t);
 void backward_cpu_conv2d(Tensor* t, Tensor* input, Tensor* weight, Tensor* bias);
 void backward_gpu_conv2d(Tensor* t, Tensor* input, Tensor* weight, Tensor* bias);

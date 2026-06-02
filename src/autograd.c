@@ -95,6 +95,21 @@ void backward_relu(Tensor* t) {
     }
 }
 
+void backward_flatten(Tensor* t) {
+    if (t->op != OP_FLATTEN || t->num_parents != 1) {
+        fprintf(stderr, "Error: backward_flatten called on tensor that is not the result of a flatten operation.\n");
+        return;
+    }
+
+    Tensor* a = t->parents[0];
+
+    if (t->device == DEVICE_CPU) {
+        backward_cpu_flatten(t, a);
+    } else if (t->device == DEVICE_GPU) {
+        backward_gpu_flatten(t, a);
+    }
+}
+
 void backward_conv2d(Tensor* t) {
     if (t->op != OP_CONV2D || t->num_parents != 3) {
         fprintf(stderr, "Error: backward_conv2d called on tensor that is not the result of a conv operation.\n");
@@ -279,9 +294,11 @@ void backward(Tensor* t) {
             backward_add_bias(current);
         } else if (current->op == OP_RELU) {
             backward_relu(current);
-        } else if (current->op = OP_CONV2D) {
+        } else if (current->op == OP_FLATTEN) {
+            backward_flatten(current);
+        } else if (current->op == OP_CONV2D) {
             backward_conv2d(current);
-        } else if (current->op = OP_MAXPOOL2D) {
+        } else if (current->op == OP_MAXPOOL2D) {
             backward_maxpool2d(current);
         } else if (current->op == OP_MSE) {
             backward_mse(current);
