@@ -89,6 +89,10 @@ void backward_cpu_relu(Tensor* t, Tensor* a) {
     }
 }
 
+void backward_cpu_conv2d(Tensor* t, Tensor* input, Tensor* weight, Tensor* bias) {
+    
+}
+
 void backward_cpu_maxpool2d(Tensor* t, Tensor* input) {
     if (!input->requires_grad) {
         return;
