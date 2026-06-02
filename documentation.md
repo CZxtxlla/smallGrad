@@ -1,6 +1,13 @@
+# Introduction
+
+This document contains explanation for select operations that I deemed confusing / warranted a deeper look. This is not exhaustive and does not explain everything in the code, but it's more to provide a bit of mathematical reasoning behind some of the more confusing parts. Note all the code I will be demonstrating is the CPU variant, since it is easier to digest.
+
+## Some Backward Functions
+-----
 ### backward_add_bias
 
 The forward operation of tensor_add_bias operates with a $2 \times 2$ matrix as follows. We have a matrix and a bias vector,
+
 $$
 A = \begin{bmatrix}
 a_{11} & a_{12} \\
@@ -235,5 +242,143 @@ void backward_cpu_cross_entropy(Tensor* t, Tensor* pred, Tensor* target) {
 
 Note here we are dividing by batch size because we are taking the average loss over all the images. Additionally, `pred->cpu_data[i]` was updated during the forward pass to contain $p_i$.
 
+## backward
+
+Backward as a whole just pieces together the operation specific backwards to slide the gradient on backwards. It's important that the gradient in a later operation is passed back before an earlier operation, and to ensure this a topological graph of the computations is made. Then, proceeding backwards through the topological graph, starting with the loss the gradient is passed back using the individual backpropogate functions for each operation until it has fully backpropogated to all learnable parameters. 
 
 ## Convolutional Layer
+
+The forward operation `tensor_conv2d(Tensor* input, Tensor* weight, Tensor* bias, int stride, int padding)` works as follows. Instead of just a big matrix multiplication like for the linear layer, we take a small filter (i.e. $3 \times 3$) and slide it across the image one step at a time, performing the convolution operation each time. Mathematically, if $I$ is the input image and $W$ is the weights (filter), then to calculate a single pixel of the output $O$, with coordinates $(x, y)$, we use the following formula:
+
+$$
+O(x, y) = \sum_{m = 0}^2 \sum_{n = 0}^2 I(x + m, y + n) \cdot W(m, n) 
+$$
+
+The following is the corresponding CPU code, yes it looks a bit complicated but the only thing that really matters is the inner computation after getting the bias. The innermost two loops perform the convolution.
+
+
+```c
+void conv2d_cpu_forward(Tensor* input, Tensor* weight, Tensor* bias, Tensor* out, int stride, int padding) {
+    int batch_size = input->shape[0];
+    int in_c = input->shape[1]; // number of input channels (same as weight->shape[1])
+    int in_h = input->shape[2];
+    int in_w = input->shape[3]; // used for boundary checks when convoluting
+
+    int out_c = weight->shape[0]; // number of outpit channels (filters)
+    int f_h = weight->shape[2]; // height of filter
+    int f_w = weight->shape[3]; // width of filter
+
+    int out_h = out->shape[2]; // output image height
+    int out_w = out->shape[3]; // output image width
+
+    for (int b = 0; b < batch_size; b++) {
+        // select a single image out of the batch
+        for (int oc = 0; oc < out_c; oc++) {
+            // select a single filter to slide across the image
+            for (int oh = 0; oh < out_h; oh++) {
+                // select the row (y coord) of the output image pixel to calculate
+                for (int ow = 0; ow < out_w; ow++) {
+                    // select the col (x coord) of the output image pixel
+
+                    float val = bias->cpu_data[oc]; // bias the same across a single filter
+
+                    for (int ic = 0; ic < in_c; ic++) {
+                        // choose the input channel
+                        for (int fh = 0; fh < f_h; fh++) {
+                            // choose the filter pixel row
+                            for (int fw = 0; fw < f_w; fw++) {
+                                // choose the filter pixel col
+
+                                // map output pixel to the corresponding input pixel
+                                int ih = oh * stride - padding + fh;
+                                int iw = ow * stride - padding + fw;
+
+                                if (ih >= 0 && ih < in_h && iw >= 0 && iw < in_w) {
+                                    // boundary checks
+
+                                    // equivalent to [b, ic, ih, iw]
+                                    int in_idx = b * (in_c * in_h * in_w) + ic * (in_h * in_w) + ih * in_w + iw;
+                                    // equivalent to [oc, ic, fh, fw]
+                                    int w_idx = oc * (in_c * f_h * f_w) + ic * (f_h * f_w) + fh * f_w + fw;
+
+                                    val += input->cpu_data[in_idx] * weight->cpu_data[w_idx];
+                                }
+                            }
+                        }
+                    }
+
+                    int out_idx = b * (out_c * out_h * out_w) + oc * (out_h * out_w) + oh * out_w + ow;
+                    out->cpu_data[out_idx] = val;
+                }
+            }
+        }
+    }
+}
+```
+
+Now to understand how the backwards pass works. We can essentially reuse the forward pass structure, and use the same seven loop setup to recreate what pieces would've gone into computing a single element. Instead of computing the element, we accumulate the gradient instead. The following is this in CPU code. Note that it is almost identical to the forward direction just instead of computing the bias the gradient is accumulated backward, and instead of computing the product of the weight and the input the gradient is accumulated backward.
+
+```c
+void backward_cpu_conv2d(Tensor* t, Tensor* input, Tensor* weight, Tensor* bias) {
+    // performs the backward transmission of gradient on the cpu for conv2d operation.
+    // very similar to the forward just different insides to pass gradient
+    int batch_size = input->shape[0];
+    int in_c = input->shape[1];
+    int in_h = input->shape[2];
+    int in_w = input->shape[3];
+
+    int out_c = weight->shape[0];
+    int f_h = weight->shape[2];
+    int f_w = weight->shape[3];
+
+    int out_h = t->shape[2];
+    int out_w = t->shape[3];
+
+    int stride = t->stride;
+    int padding = t->padding;
+
+    for (int b = 0; b < batch_size; b++) {
+        for (int oc = 0; oc < out_c; oc++) {
+            for (int oh = 0; oh < out_h; oh++) {
+                for (int ow = 0; ow < out_w; ow++) {
+                    int out_idx = b * (out_c * out_h * out_w) + oc * (out_h * out_w) + oh * (out_w) + ow;
+                    float grad_out = t->cpu_grad[out_idx];
+                    
+                    if (bias->requires_grad) {
+                        bias->cpu_grad[oc] += grad_out; // gradient gets directly passed back since bias is from addition
+                    }
+
+                    for (int ic = 0; ic < in_c; ic++) {
+                        for (int fh = 0; fh < f_h; fh++) {
+                            for (int fw = 0; fw < f_w; fw++) {
+                                int ih = oh * stride - padding + fh;
+                                int iw = ow * stride - padding + fw;
+
+                                if (ih >= 0 && ih < in_h && iw >= 0 && iw < in_w) {
+                                    int in_idx = b * (in_c * in_h * in_w) + ic * (in_h * in_w) + ih * in_w + iw;
+                                    int w_idx = oc * (in_c * f_h * f_w) + ic * (f_h * f_w) + fh * f_w + fw;
+
+                                    if (input->requires_grad) {
+                                        input->cpu_grad[in_idx] += weight->cpu_data[w_idx] * grad_out;
+                                    }
+                                    if (weight->requires_grad) {
+                                        weight->cpu_grad[w_idx] += input->cpu_data[in_idx] * grad_out;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+In the future I would like to speed this up because I think this code is a large bottleneck.
+
+
+
+# Results
+---
+The goal of this project was to learn about the mathematical foundations behind neural networks, as well as practically applying the CUDA skills I have learned, but what good is all that if the model doesn't perform well. The main target was a good accuracy on the MNIST dataset of handwritten letters. I will be testing the two models I have implemented, first just a standard fully connected MLP, and second a simple CNN.
