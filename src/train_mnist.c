@@ -137,7 +137,7 @@ int main(void) {
         fprintf(stderr, "Error: failed to load datasets. Check your data/ folder.\n");
         return 1;
     }
-
+    
     printf("\nTransferring all datasets to GPU VRAM...\n");
     tensor_to_device(train_images, DEVICE_GPU);
     tensor_to_device(train_labels, DEVICE_GPU);

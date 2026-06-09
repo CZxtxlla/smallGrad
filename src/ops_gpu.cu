@@ -5,6 +5,53 @@
 
 #define TILE_WIDTH 16
 
+// ------- Helper Kernel -----------
+
+__global__ void im2col_gpu_kernel(float* data_im, int channels, int height, 
+    int width, int f_h, int f_w, int padding, int stride, int out_h, 
+    int out_w, float* data_col, int total_elements) {
+    
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (i < total_elements) {
+
+        // unravel the 1D index into the im2col coordinates
+        int w = i % out_w;
+        int h = (i / out_w) % out_h;
+        int c = (i / (out_w * out_h));
+
+        
+        int w_offset = c % f_w;
+        int h_offset = c % f_h;
+        int c_im = c / f_h / f_w;
+
+        int im_row = h_offset + h * stride - padding;
+        int im_col = w_offset + w * stride - padding;
+
+        // boundary check
+        if (im_row >= 0 && im_row < height && im_col >= 0 && im_col < width) {
+            data_col[i] = data_im[(c_im * height + im_row) * width + im_col];
+        } else {
+            data_col[i] = 0.0f;
+        }
+    }
+}
+
+__global__ void special_matmul_kernel(float* A, float* B, float* bias, float* C, int M, int K, int N) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row < M && col < N) {
+        float sum = bias[row];
+
+        for (int k = 0; k < K; k++) {
+            sum += A[row * K + k] * B[k * N + col];
+        }
+
+        C[row * N + col] = sum;
+    }
+}
+
 // ------------- Kernels ----------------
 
 __global__ void add_kernel(float* a, float* b, float* out, int size) {
@@ -80,7 +127,7 @@ __global__ void relu_kernel(float* a, float* out, int size) {
         out[i] = a[i] > 0 ? a[i] : 0.0f;
     }
 }
-
+/*
 __global__ void conv2d_forward_kernel(
     float* input, float* weight, float* bias, float* out, 
     int batch_size, int in_c, int in_h, int in_w, 
@@ -120,6 +167,7 @@ __global__ void conv2d_forward_kernel(
             out[i] = val;
         }
 } 
+*/
 
 __global__ void maxpool2d_forward_kernel(float* input, float* out, int* max_indices, int batch_size, int channels, int in_h, int in_w, int out_h, int out_w, int filter_size, int stride, int padding, int total_elements) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -289,7 +337,7 @@ void relu_gpu_forward(Tensor* a, Tensor* out) {
 cleanup:
     exit(EXIT_FAILURE);
 }
-
+/*
 void conv2d_gpu_forward(Tensor* input, Tensor* weight, Tensor* bias, Tensor* out, int stride, int padding) {
     int batch_size = input->shape[0];
     int in_c = input->shape[1]; // number of input channels (same as weight->shape[1])
@@ -310,6 +358,53 @@ void conv2d_gpu_forward(Tensor* input, Tensor* weight, Tensor* bias, Tensor* out
     dim3 dimGrid((total_elements + threads - 1)/threads, 1, 1);
 
     conv2d_forward_kernel<<<dimGrid, dimBlock>>>(input->gpu_data, weight->gpu_data, bias->gpu_data, out->gpu_data, batch_size, in_c, in_h, in_w, out_c, f_h, f_w, out_h, out_w, stride, padding, total_elements);
+    CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
+    return;
+
+cleanup:
+    exit(EXIT_FAILURE);
+}
+
+*/
+
+void conv2d_gpu_forward(Tensor* input, Tensor* weight, Tensor* bias, Tensor* out, int stride, int padding) {
+    int batch_size = input->shape[0];
+    int in_c = input->shape[1]; // number of input channels (same as weight->shape[1])
+    int in_h = input->shape[2];
+    int in_w = input->shape[3]; // used for boundary checks when convoluting
+
+    int out_c = weight->shape[0]; // number of outpit channels (filters)
+    int f_h = weight->shape[2]; // height of filter
+    int f_w = weight->shape[3]; // width of filter
+
+    int out_h = out->shape[2]; // output image height
+    int out_w = out->shape[3]; // output image width
+
+    int M = out_c;
+    int K = in_c * f_h * f_w;
+    int N = out_h * out_w;
+
+    float* d_im2col_space;
+    cudaMalloc((void**)&d_im2col_space, K * N * sizeof(float));
+
+    int im2col_elements = K * N;
+    
+    int threads = 256;
+    dim3 dimBlock(threads, 1, 1);
+    dim3 dimGrid((im2col_elements + threads - 1)/threads, 1, 1);
+
+    dim3 dimBlockMatMul(16, 16, 1);
+    dim3 dimGridMatMul((N + dimBlockMatMul.x - 1) / dimBlockMatMul.x, (M + dimBlockMatMul.y - 1) / dimBlockMatMul.y, 1);
+
+    for (int b = 0; b < batch_size; b++) {
+        float* current_input = input->gpu_data + b * (in_c * in_h * in_w);
+        float* current_output = out->gpu_data + b * (out_c * out_h * out_w);
+
+        im2col_gpu_kernel<<<dimGrid, dimBlock>>>(current_input, in_c, in_h, in_w, f_h, f_w, padding, stride, out_h, out_w, d_im2col_space, im2col_elements);
+
+        special_matmul_kernel<<<dimGridMatMul, dimBlockMatMul>>>(weight->gpu_data, d_im2col_space, bias->gpu_data, current_output, M, K, N);
+    }
+    cudaFree(d_im2col_space);
     CUDA_CHECK_GOTO(cudaGetLastError(), cleanup);
     return;
 
