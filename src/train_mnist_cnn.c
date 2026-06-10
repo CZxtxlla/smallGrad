@@ -85,7 +85,7 @@ void evaluate_model(SimpleCNN* model, Tensor* test_images, Tensor* test_labels) 
 // --- The Training Loop ---
 SimpleCNN* run_simple_training(DeviceType device, const char* label, Tensor* images, Tensor* labels) {
     int sample_count = 60000; 
-    int epochs = 60; 
+    int epochs = 10; 
     int batch_size = 128;
     // int num_classes = labels->shape[1];
 
@@ -96,8 +96,8 @@ SimpleCNN* run_simple_training(DeviceType device, const char* label, Tensor* ima
     int num_params;
     Tensor** params = cnn_get_parameters(model, &num_params);
     
-    // Lower learning rate (CNNs with MaxPool often need slightly smaller steps than flat MLPs)
-    SGD* optimizer = sgd_create(params, num_params, 0.01f); 
+    // Adam is good with lr around 0.001
+    Adam* optimizer = adam_create(params, num_params, 0.001f); 
 
     printf("\n[%s] Starting CNN training on %d samples...\n", label, sample_count);
 
@@ -127,8 +127,8 @@ SimpleCNN* run_simple_training(DeviceType device, const char* label, Tensor* ima
 
             seed_loss_grad(loss);
             backward(loss);
-            sgd_step(optimizer);
-            sgd_zero_grad(optimizer);
+            adam_step(optimizer);
+            adam_zero_grad(optimizer);
 
             free_graph(loss);
             free_tensor(batch_inputs);
@@ -138,7 +138,7 @@ SimpleCNN* run_simple_training(DeviceType device, const char* label, Tensor* ima
         printf("[%s] Epoch %d/%d | Average Loss: %.4f\n", label, epoch + 1, epochs, total_loss / num_batches);
     }
 
-    sgd_free(optimizer);
+    adam_free(optimizer);
     free(params); 
     
     return model;

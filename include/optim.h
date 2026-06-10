@@ -29,8 +29,35 @@ void sgd_gpu_zero_grad(Tensor* parameter);
 
 void sgd_free(SGD* optim); // free optimizer, but not tensors it points to
 
-// --------- other potential optimizers -----------
+// --------- ADAM optimizer -----------
 
+typedef struct {
+    Tensor** parameters;
+    int num_parameters;
+    float lr; // learning rate (set around 0.001)
+
+    float beta_1; // exp decay rate for first moment estimate (0.9)
+    float beta_2; // exp decay rate for second moment estimate (0.999)
+
+    float epsilon;
+
+    int t; // time, epoch/batch counter
+
+    float** m; // first moment
+    float** v; // second moment
+} Adam;
+
+Adam* adam_create(Tensor** parameters, int num_parameters, float lr); // create optimizer
+
+void adam_step(Adam* optim); // apply learning rule to parameters
+void adam_gpu_step(Tensor* p, float* m, float* v, float lr, float beta1, float beta2, float eps, int t);
+void adam_cpu_step(Tensor* p, float* m, float* v, float lr, float beta1, float beta2, float eps, int t);
+
+void adam_zero_grad(Adam* optim); // reset all gradients to 0
+void adam_cpu_zero_grad(Tensor* parameter);
+void adam_gpu_zero_grad(Tensor* parameter);
+
+void adam_free(Adam* optim); // free optimizer, but not parameters
 
 
 
