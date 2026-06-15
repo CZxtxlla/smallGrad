@@ -59,6 +59,8 @@ MLP* create_mlp(int* architecture, int num_layers, DeviceType device); // create
 Tensor* mlp_forward(MLP* model, Tensor* input); // perform forward pass through the mlp
 Tensor** mlp_get_parameters(MLP* model, int* out_num_parameters); // get array with all learnable parameters (weights and biases)
 void free_mlp(MLP* model); // free memory allocated for the mlp and its layers
+int save_mlp(MLP* model, char* location); // save MLP to specified file 
+MLP* load_mlp(char* location, DeviceType device); // load MLP saved in location to model
 
 
 // stuff for CNN

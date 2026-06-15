@@ -144,13 +144,38 @@ int main(void) {
     tensor_to_device(test_images, DEVICE_GPU);
     tensor_to_device(test_labels, DEVICE_GPU);
 
-    // 1. Train the model
+    // Train the model
     MLP* trained_model = run_simple_training(DEVICE_GPU, "GPU", train_images, train_labels);
 
-    // 2. Test the model
+    // Test the model
     if (trained_model) {
+        printf("\n--- Evaluating Original Trained Model ---\n");
         evaluate_model(trained_model, test_images, test_labels);
+
+        char* filepath = "mnist_model.smlp";
+        printf("Saving model to %s\n", filepath);
+        if (save_mlp(trained_model, filepath)) {
+            printf("Model saved successfully!\n");
+        } else {
+            fprintf(stderr, "failed to save model.\n");
+        }
+
         free_mlp(trained_model); // Free the model now that we are done testing
+
+        MLP* loaded_model = load_mlp(filepath, DEVICE_GPU);
+
+        if (loaded_model) {
+            printf("Model loaded successfully!\n");
+            
+            // Evaluate the loaded model
+            printf("\n--- Evaluating Loaded Model ---\n");
+            evaluate_model(loaded_model, test_images, test_labels);
+            
+            // clean up the loaded model
+            free_mlp(loaded_model);
+        } else {
+            fprintf(stderr, "Failed to load model from %s\n", filepath);
+        }
     }
 
     // Clean up global data

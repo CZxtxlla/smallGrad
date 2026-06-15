@@ -1,4 +1,8 @@
 #include "../include/nn.h"
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
 
 extern int cudaFree(void* devPtr);
 
@@ -231,6 +235,112 @@ void free_mlp(MLP* model) {
         free(model->layers);
         free(model);
     }
+}
+
+#define MLP_MAGIC_NUMBER 0x534D4C50 // magic number to identify MLP file
+
+int save_mlp(MLP* model, char* location) {
+    if (model == NULL || location == NULL) {
+        return 0; // failure
+    } 
+    FILE* file = fopen(location, "wb");
+    if (file == NULL) {
+        fprintf(stderr, "Error: could not open file %s.\n", location);
+        return 0;
+    }
+
+    uint32_t magic = MLP_MAGIC_NUMBER;
+    fwrite(&magic, sizeof(uint32_t), 1, file); // write the identifier
+
+    fwrite(&(model->num_layers), sizeof(int), 1, file); // write the number of layers
+
+    for (int i = 0; i < model->num_layers; i++) {
+        LinearLayer* layer = model->layers[i];
+
+        int in_features = layer->weight->shape[0];
+        int out_features = layer->weight->shape[1];
+
+        // write the dimensions of the layer
+        fwrite(&in_features, sizeof(int), 1, file);
+        fwrite(&out_features, sizeof(int), 1, file);
+
+        // get cpu version of the data
+        float* weight = (float*)malloc(layer->weight->size * sizeof(float));
+        float* bias = (float*)malloc(layer->bias->size * sizeof(float));
+
+        tensor_download_data(layer->weight, weight);
+        tensor_download_data(layer->bias, bias);
+
+        fwrite(weight, sizeof(float), layer->weight->size, file);
+        fwrite(bias, sizeof(float), layer->bias->size, file);
+
+        free(weight);
+        free(bias);
+    }
+
+    fclose(file);
+    return 1; // success
+}
+
+MLP* load_mlp(char* location, DeviceType device) {
+    if (location == NULL) {
+        return NULL; // failure
+    } 
+    FILE* file = fopen(location, "rb");
+    if (file == NULL) {
+        fprintf(stderr, "Error: could not open file %s.\n", location);
+        return NULL;
+    }
+
+    // verify magic number
+    uint32_t magic;
+    if (fread(&magic, sizeof(uint32_t), 1, file) != 1 || magic != MLP_MAGIC_NUMBER) {
+        fprintf(stderr, "Error: problem reading file or wrong file type.\n");
+        fclose(file);
+        return NULL;
+    }
+
+    int num_layers_in_file;
+    if (fread(&num_layers_in_file, sizeof(int), 1, file) != 1) {
+        fprintf(stderr, "Error: problem reading file.\n");
+        fclose(file);
+        return NULL;
+    }
+    // create MLP
+    MLP* model = (MLP*)malloc(sizeof(MLP));
+    if (model == NULL) {
+        fprintf(stderr, "Error: memory allocation failed for MLP.\n");
+        fclose(file);
+        return NULL;
+    }
+
+    model->num_layers = num_layers_in_file;
+    model->dev = device;
+
+    model->layers = (LinearLayer**)calloc(num_layers_in_file, sizeof(LinearLayer*));
+
+    for (int i = 0; i < num_layers_in_file; i++) {
+        int in_features, out_features;
+
+        if (fread(&in_features, sizeof(int), 1, file) != 1 || fread(&out_features, sizeof(int), 1, file) != 1) {
+            fprintf(stderr, "Error: missing layer dimensions.\n");
+            fclose(file);
+            free_mlp(model);
+            return NULL;
+        }
+
+        model->layers[i] = create_linear_layer(in_features, out_features, DEVICE_CPU);
+
+        LinearLayer* layer = model->layers[i];
+        fread(layer->weight->cpu_data, sizeof(float), layer->weight->size, file);
+        fread(layer->bias->cpu_data, sizeof(float), layer->bias->size, file);
+        if (device == DEVICE_GPU) {
+            tensor_to_device(layer->weight, DEVICE_GPU);
+            tensor_to_device(layer->bias, DEVICE_GPU);
+        }
+    }
+    fclose(file);
+    return model;
 }
 
 // ------------ CNN ------------------
