@@ -85,8 +85,8 @@ void evaluate_model(SimpleCNN* model, Tensor* test_images, Tensor* test_labels) 
 // --- The Training Loop ---
 SimpleCNN* run_simple_training(DeviceType device, const char* label, Tensor* images, Tensor* labels) {
     int sample_count = 60000; 
-    int epochs = 10; 
-    int batch_size = 128;
+    int epochs = 100; 
+    int batch_size = 512;
     // int num_classes = labels->shape[1];
 
     // Create the CNN instead of the MLP

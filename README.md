@@ -377,8 +377,3 @@ void backward_cpu_conv2d(Tensor* t, Tensor* input, Tensor* weight, Tensor* bias)
 
 In the future I would like to speed this up because I think this code is a large bottleneck.
 
-
-
-# Results
----
-The goal of this project was to learn about the mathematical foundations behind neural networks, as well as practically applying the CUDA skills I have learned, but what good is all that if the model doesn't perform well. The main target was a good accuracy on the MNIST dataset of handwritten letters. I will be testing the two models I have implemented, first just a standard fully connected MLP, and second a simple CNN.
